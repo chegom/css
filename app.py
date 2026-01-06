@@ -19,33 +19,57 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-pr
 # 세션별 크롤링 결과 저장 (session_id -> {results, status, stop_flag})
 user_sessions = {}
 
-# 제외할 사이트 목록
+# 제외할 사이트 목록 (정확한 도메인 매칭)
 EXCLUDE_DOMAINS = [
-    "naver.com", "naver.me",
-    "news", "snmnews", "chosun", "joongang", "hani", "donga", "hankyung",
-    "mk.co.kr", "mt.co.kr", "edaily", "newsis", "yonhap", "yna.co.kr", "khan",
-    "tistory", "blog", "brunch", "medium.com", "velog", "notion.so",
-    "cafe.daum", "dcinside", "clien", "ruliweb", "fmkorea",
-    "saramin", "jobkorea", "job.gg.go.kr", "incruit", "wanted", "jobaba",
-    "alba", "work.go.kr", "catch.co.kr", "superookie", "workieum",
-    "gmarket", "11st", "coupang", "auction", "interpark", "wemakeprice",
-    "tmon", "ssg.com", "lotte", "shinsegae", "hmall", "gsshop",
-    "alibaba", "aliexpress", "amazon", "ebay", "taobao",
-    "mfgrobots", "made-in-china", "globalsources",
-    "firstmold", "djmolding", "sanonchina", "yujebearing",
-    "custom-plastic-molds", "rjcmold", "formlabs", "boyiprototyping",
-    "juliertech", ".cn", ".com.cn",
-    "wikipedia", "namu.wiki", "openstreetmap", "google.com", "youtube",
-    "facebook", "instagram", "twitter", "linkedin",
-    "kisti.re.kr", "scienceon",
+    # 네이버/다음/카카오
+    "naver.com", "naver.me", "daum.net", "kakao.com",
+    
+    # 블로그/커뮤니티 (정확한 도메인)
+    "tistory.com", "blog.me", "brunch.co.kr", "medium.com", 
+    "velog.io", "notion.so", "notion.site",
+    "dcinside.com", "clien.net", "ruliweb.com", "fmkorea.com",
+    
+    # 채용사이트
+    "saramin.co.kr", "jobkorea.co.kr", "incruit.com", 
+    "wanted.co.kr", "jobplanet.co.kr", "catch.co.kr",
+    
+    # 쇼핑몰
+    "gmarket.co.kr", "11st.co.kr", "coupang.com", "auction.co.kr",
+    "aliexpress.com", "amazon.com", "ebay.com",
+    
+    # 해외 도매
+    "alibaba.com", "made-in-china.com", "globalsources.com",
+    
+    # 소셜미디어
+    "youtube.com", "facebook.com", "instagram.com", 
+    "twitter.com", "linkedin.com",
+    
+    # 위키/백과
+    "wikipedia.org", "namu.wiki", "terms.naver.com",
+    
+    # 정부/공공
+    "go.kr",
 ]
 
 
 def is_valid_company_url(url):
+    """회사 웹사이트로 적합한 URL인지 확인 (더 정교한 필터링)"""
     url_lower = url.lower()
+    
+    # 정확한 도메인 매칭
     for domain in EXCLUDE_DOMAINS:
+        # 도메인이 URL에 정확히 포함되어 있는지 확인
         if domain in url_lower:
             return False
+    
+    # 블로그 패턴 제외 (blog가 URL 경로에 있는 경우)
+    if "/blog/" in url_lower or "/cafe/" in url_lower:
+        return False
+    
+    # 뉴스 기사 패턴 제외 (article, news 경로)
+    if "/article/" in url_lower or "/news/" in url_lower:
+        return False
+    
     return True
 
 
@@ -184,7 +208,7 @@ def run_crawling(keywords, session_id, max_count=0):
                 
             if keyword.strip():
                 user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
-                urls = get_naver_links(driver, keyword.strip(), pages=3)
+                urls = get_naver_links(driver, keyword.strip(), pages=5)
                 all_urls.extend(urls)
         
         target_urls = list(set(all_urls))
