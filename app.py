@@ -191,6 +191,11 @@ def run_crawling(keywords, session_id, max_count=0):
         total_sites = len(target_urls)
         user_sessions[session_id]["status"]["progress"] = f"총 {total_sites}개 사이트 발견. 정보 수집 중..."
         
+        # 중복 체크용 세트
+        seen_urls = set()
+        seen_companies = set()
+        seen_emails = set()
+        
         # 회사 정보 수집
         for i, url in enumerate(target_urls):
             # 정지 버튼 체크
@@ -208,8 +213,33 @@ def run_crawling(keywords, session_id, max_count=0):
             user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개"
             
             info = extract_company_info(driver, url)
+            
             if info["이메일"]:
-                user_sessions[session_id]["results"].append(info)
+                # 중복 체크: URL, 회사명, 이메일 기준
+                url_base = url.split('?')[0].rstrip('/')  # 쿼리 파라미터 제거
+                company_name = info["회사명"].strip() if info["회사명"] else ""
+                email_key = info["이메일"].lower().strip()
+                
+                is_duplicate = False
+                
+                # URL 중복 체크
+                if url_base in seen_urls:
+                    is_duplicate = True
+                
+                # 회사명 중복 체크 (회사명이 있는 경우만)
+                if company_name and company_name in seen_companies:
+                    is_duplicate = True
+                
+                # 이메일 중복 체크
+                if email_key in seen_emails:
+                    is_duplicate = True
+                
+                if not is_duplicate:
+                    seen_urls.add(url_base)
+                    if company_name:
+                        seen_companies.add(company_name)
+                    seen_emails.add(email_key)
+                    user_sessions[session_id]["results"].append(info)
         
         if not user_sessions[session_id]["stop_flag"]:
             user_sessions[session_id]["status"]["progress"] = f"완료! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
