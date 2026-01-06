@@ -104,9 +104,22 @@ def get_naver_links(driver, keyword, pages=5):
         driver.get(url)
         time.sleep(2)
         
+        # 네이버 웹 검색 결과의 다양한 선택자
         selectors = [
-            "a.link_tit", "div.total_tit a", "a.total_tit",
-            "div.api_txt_lines a", "a[href*='http']:not([href*='naver'])",
+            # 웹 검색 결과 제목 링크
+            "a.link_tit",
+            "div.total_tit a",
+            "a.total_tit", 
+            "a.title_link",
+            # 웹문서 결과
+            "div.web_item a.link",
+            "div.lst_view a",
+            "div.api_txt_lines a",
+            # 통합검색 결과
+            "div.total_wrap a",
+            "li.bx a",
+            # 일반 외부 링크
+            "a[href^='http']:not([href*='naver.com']):not([href*='search.naver'])",
         ]
         
         for selector in selectors:
@@ -115,9 +128,18 @@ def get_naver_links(driver, keyword, pages=5):
                 for res in results:
                     href = res.get_attribute("href")
                     if href and href.startswith("http") and is_valid_company_url(href):
-                        links.append(href)
+                        # 네이버 내부 링크 한번 더 체크
+                        if "naver.com" not in href and "search.naver" not in href:
+                            links.append(href)
             except:
                 pass
+        
+        # 페이지 스크롤해서 더 많은 결과 로드
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1)
+        except:
+            pass
     
     return list(set(links))
 
@@ -187,7 +209,7 @@ def extract_company_info(driver, url):
         return info
 
 
-def run_crawling(keywords, session_id, max_count=0):
+def run_crawling(keywords, session_id, max_count=0, search_pages=5):
     global user_sessions
     
     user_sessions[session_id] = {
@@ -208,7 +230,7 @@ def run_crawling(keywords, session_id, max_count=0):
                 
             if keyword.strip():
                 user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
-                urls = get_naver_links(driver, keyword.strip(), pages=5)
+                urls = get_naver_links(driver, keyword.strip(), pages=search_pages)
                 all_urls.extend(urls)
         
         target_urls = list(set(all_urls))
@@ -299,12 +321,13 @@ def crawl():
     data = request.json
     keywords = data.get('keywords', [])
     max_count = data.get('maxCount', 0)  # 0이면 제한 없음
+    search_pages = data.get('searchPages', 5)  # 기본 5페이지
     
     if not keywords or all(k.strip() == '' for k in keywords):
         return jsonify({"error": "검색어를 입력해주세요."}), 400
     
     # 백그라운드에서 크롤링 실행
-    thread = threading.Thread(target=run_crawling, args=(keywords, session_id, max_count))
+    thread = threading.Thread(target=run_crawling, args=(keywords, session_id, max_count, search_pages))
     thread.start()
     
     return jsonify({"message": "크롤링을 시작합니다."})

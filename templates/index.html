@@ -359,10 +359,20 @@
             <div class="options-row" style="display: flex; gap: 20px; align-items: center; margin-bottom: 25px; flex-wrap: wrap;">
                 <div class="input-group" style="flex: 0 0 auto; margin-bottom: 0;">
                     <label>수집 개수 제한</label>
-                    <input type="number" id="maxCount" placeholder="0 = 무제한" min="0" style="width: 150px;">
+                    <input type="number" id="maxCount" placeholder="0 = 무제한" min="0" style="width: 130px;">
                 </div>
-                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">
-                    💡 0 또는 비워두면 제한 없이 모두 수집합니다
+                <div class="input-group" style="flex: 0 0 auto; margin-bottom: 0;">
+                    <label>검색 범위 (페이지)</label>
+                    <select id="searchPages" style="width: 130px; padding: 14px 16px; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-dark); color: var(--text-primary); font-size: 1rem;">
+                        <option value="3">3 페이지</option>
+                        <option value="5" selected>5 페이지</option>
+                        <option value="10">10 페이지</option>
+                        <option value="15">15 페이지</option>
+                        <option value="20">20 페이지 (느림)</option>
+                    </select>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
+                    💡 페이지가 많을수록 더 많은 결과 (시간 오래 걸림)
                 </p>
             </div>
             
@@ -429,6 +439,7 @@
             }
 
             const maxCount = parseInt(document.getElementById('maxCount').value) || 0;
+            const searchPages = parseInt(document.getElementById('searchPages').value) || 5;
 
             // UI 업데이트
             document.getElementById('startBtn').disabled = true;
@@ -441,7 +452,7 @@
             fetch('/crawl', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keywords: keywords, maxCount: maxCount })
+                body: JSON.stringify({ keywords: keywords, maxCount: maxCount, searchPages: searchPages })
             })
             .then(response => response.json())
             .then(data => {
