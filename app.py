@@ -1,8 +1,9 @@
 import os
 import time
 import re
+import uuid
 import pandas as pd
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,10 +14,10 @@ import io
 import threading
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
 
-# 크롤링 결과 저장
-crawling_results = []
-crawling_status = {"running": False, "progress": "", "completed": False}
+# 세션별 크롤링 결과 저장 (session_id -> {results, status})
+user_sessions = {}
 
 # 제외할 사이트 목록
 EXCLUDE_DOMAINS = [
@@ -162,11 +163,13 @@ def extract_company_info(driver, url):
         return info
 
 
-def run_crawling(keywords):
-    global crawling_results, crawling_status
+def run_crawling(keywords, session_id):
+    global user_sessions
     
-    crawling_results = []
-    crawling_status = {"running": True, "progress": "크롤링 시작...", "completed": False}
+    user_sessions[session_id] = {
+        "results": [],
+        "status": {"running": True, "progress": "크롤링 시작...", "completed": False}
+    }
     
     driver = setup_driver()
     
@@ -175,38 +178,47 @@ def run_crawling(keywords):
         all_urls = []
         for i, keyword in enumerate(keywords):
             if keyword.strip():
-                crawling_status["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
                 urls = get_naver_links(driver, keyword.strip(), pages=3)
                 all_urls.extend(urls)
         
         target_urls = list(set(all_urls))
-        crawling_status["progress"] = f"총 {len(target_urls)}개 사이트 발견. 정보 수집 중..."
+        user_sessions[session_id]["status"]["progress"] = f"총 {len(target_urls)}개 사이트 발견. 정보 수집 중..."
         
         # 회사 정보 수집
         for i, url in enumerate(target_urls):
-            crawling_status["progress"] = f"정보 수집 중... ({i+1}/{len(target_urls)})"
+            user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{len(target_urls)})"
             info = extract_company_info(driver, url)
             if info["이메일"]:
-                crawling_results.append(info)
+                user_sessions[session_id]["results"].append(info)
         
-        crawling_status["progress"] = f"완료! {len(crawling_results)}개 회사 정보 수집"
-        crawling_status["completed"] = True
+        user_sessions[session_id]["status"]["progress"] = f"완료! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
+        user_sessions[session_id]["status"]["completed"] = True
         
     finally:
         driver.quit()
-        crawling_status["running"] = False
+        user_sessions[session_id]["status"]["running"] = False
 
 
 @app.route('/')
 def index():
+    # 세션 ID가 없으면 생성
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
     return render_template('index.html')
 
 
 @app.route('/crawl', methods=['POST'])
 def crawl():
-    global crawling_status
+    global user_sessions
     
-    if crawling_status["running"]:
+    # 세션 ID 확인
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+    session_id = session['session_id']
+    
+    # 이 사용자가 이미 크롤링 중인지 확인
+    if session_id in user_sessions and user_sessions[session_id]["status"]["running"]:
         return jsonify({"error": "이미 크롤링이 진행 중입니다."}), 400
     
     data = request.json
@@ -216,7 +228,7 @@ def crawl():
         return jsonify({"error": "검색어를 입력해주세요."}), 400
     
     # 백그라운드에서 크롤링 실행
-    thread = threading.Thread(target=run_crawling, args=(keywords,))
+    thread = threading.Thread(target=run_crawling, args=(keywords, session_id))
     thread.start()
     
     return jsonify({"message": "크롤링을 시작합니다."})
@@ -224,25 +236,48 @@ def crawl():
 
 @app.route('/status')
 def status():
+    session_id = session.get('session_id')
+    
+    if not session_id or session_id not in user_sessions:
+        return jsonify({
+            "running": False,
+            "progress": "",
+            "completed": False,
+            "count": 0
+        })
+    
+    user_data = user_sessions[session_id]
     return jsonify({
-        "running": crawling_status["running"],
-        "progress": crawling_status["progress"],
-        "completed": crawling_status["completed"],
-        "count": len(crawling_results)
+        "running": user_data["status"]["running"],
+        "progress": user_data["status"]["progress"],
+        "completed": user_data["status"]["completed"],
+        "count": len(user_data["results"])
     })
 
 
 @app.route('/results')
 def results():
-    return jsonify(crawling_results)
+    session_id = session.get('session_id')
+    
+    if not session_id or session_id not in user_sessions:
+        return jsonify([])
+    
+    return jsonify(user_sessions[session_id]["results"])
 
 
 @app.route('/download')
 def download():
-    if not crawling_results:
+    session_id = session.get('session_id')
+    
+    if not session_id or session_id not in user_sessions:
         return "다운로드할 데이터가 없습니다.", 400
     
-    df = pd.DataFrame(crawling_results)
+    results_data = user_sessions[session_id]["results"]
+    
+    if not results_data:
+        return "다운로드할 데이터가 없습니다.", 400
+    
+    df = pd.DataFrame(results_data)
     columns = ["회사명", "사이트명", "이메일", "대표자명", "회사주소", "URL"]
     df = df[columns]
     
