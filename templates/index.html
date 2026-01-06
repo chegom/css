@@ -271,10 +271,16 @@
         }
 
         td {
-            max-width: 200px;
+            max-width: 250px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        td.address {
+            max-width: 400px;
+            white-space: normal;
+            word-break: keep-all;
         }
 
         td.email {
@@ -390,10 +396,9 @@
                     <thead>
                         <tr>
                             <th>회사명</th>
-                            <th>사이트명</th>
                             <th>이메일</th>
                             <th>대표자명</th>
-                            <th>회사주소</th>
+                            <th style="min-width: 300px;">회사주소</th>
                             <th>URL</th>
                         </tr>
                     </thead>
@@ -493,10 +498,9 @@
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td>${item.회사명 || '-'}</td>
-                        <td>${item.사이트명 || '-'}</td>
                         <td class="email">${item.이메일 || '-'}</td>
                         <td>${item.대표자명 || '-'}</td>
-                        <td title="${item.회사주소 || ''}">${item.회사주소 || '-'}</td>
+                        <td class="address">${item.회사주소 || '-'}</td>
                         <td><a href="${item.URL}" target="_blank">바로가기</a></td>
                     `;
                     tbody.appendChild(row);

@@ -346,7 +346,7 @@ def download():
         return "다운로드할 데이터가 없습니다.", 400
     
     df = pd.DataFrame(results_data)
-    columns = ["회사명", "사이트명", "이메일", "대표자명", "회사주소", "URL"]
+    columns = ["회사명", "이메일", "대표자명", "회사주소", "URL"]
     df = df[columns]
     
     output = io.BytesIO()
