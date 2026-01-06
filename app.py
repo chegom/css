@@ -50,23 +50,23 @@ def is_valid_company_url(url):
 
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--single-process")
+    chrome_options.add_argument("--disable-setuid-sandbox")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # Railway/Docker 환경에서는 Chrome이 설치되어 있음
-    if os.environ.get('RAILWAY_ENVIRONMENT') or os.path.exists('/usr/bin/google-chrome'):
+    # Railway/Docker 환경
+    if os.path.exists('/usr/bin/google-chrome'):
         chrome_options.binary_location = '/usr/bin/google-chrome'
-        service = Service('/usr/bin/chromedriver')
-    else:
-        # 로컬 환경
-        service = Service(ChromeDriverManager().install())
     
+    # webdriver-manager가 자동으로 ChromeDriver 설치
+    service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
