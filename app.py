@@ -16,7 +16,7 @@ import threading
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
 
-# 세션별 크롤링 결과 저장 (session_id -> {results, status})
+# 세션별 크롤링 결과 저장 (session_id -> {results, status, stop_flag})
 user_sessions = {}
 
 # 제외할 사이트 목록
@@ -163,12 +163,13 @@ def extract_company_info(driver, url):
         return info
 
 
-def run_crawling(keywords, session_id):
+def run_crawling(keywords, session_id, max_count=0):
     global user_sessions
     
     user_sessions[session_id] = {
         "results": [],
-        "status": {"running": True, "progress": "크롤링 시작...", "completed": False}
+        "status": {"running": True, "progress": "크롤링 시작...", "completed": False},
+        "stop_flag": False
     }
     
     driver = setup_driver()
@@ -177,22 +178,42 @@ def run_crawling(keywords, session_id):
         # URL 수집
         all_urls = []
         for i, keyword in enumerate(keywords):
+            # 정지 버튼 체크
+            if user_sessions[session_id]["stop_flag"]:
+                break
+                
             if keyword.strip():
                 user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
                 urls = get_naver_links(driver, keyword.strip(), pages=3)
                 all_urls.extend(urls)
         
         target_urls = list(set(all_urls))
-        user_sessions[session_id]["status"]["progress"] = f"총 {len(target_urls)}개 사이트 발견. 정보 수집 중..."
+        total_sites = len(target_urls)
+        user_sessions[session_id]["status"]["progress"] = f"총 {total_sites}개 사이트 발견. 정보 수집 중..."
         
         # 회사 정보 수집
         for i, url in enumerate(target_urls):
-            user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{len(target_urls)})"
+            # 정지 버튼 체크
+            if user_sessions[session_id]["stop_flag"]:
+                user_sessions[session_id]["status"]["progress"] = f"정지됨! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
+                break
+            
+            # 개수 제한 체크
+            if max_count > 0 and len(user_sessions[session_id]["results"]) >= max_count:
+                user_sessions[session_id]["status"]["progress"] = f"완료! {max_count}개 도달 (목표 달성)"
+                break
+            
+            collected = len(user_sessions[session_id]["results"])
+            target_text = f"/{max_count}" if max_count > 0 else ""
+            user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개"
+            
             info = extract_company_info(driver, url)
             if info["이메일"]:
                 user_sessions[session_id]["results"].append(info)
         
-        user_sessions[session_id]["status"]["progress"] = f"완료! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
+        if not user_sessions[session_id]["stop_flag"]:
+            user_sessions[session_id]["status"]["progress"] = f"완료! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
+        
         user_sessions[session_id]["status"]["completed"] = True
         
     finally:
@@ -223,15 +244,32 @@ def crawl():
     
     data = request.json
     keywords = data.get('keywords', [])
+    max_count = data.get('maxCount', 0)  # 0이면 제한 없음
     
     if not keywords or all(k.strip() == '' for k in keywords):
         return jsonify({"error": "검색어를 입력해주세요."}), 400
     
     # 백그라운드에서 크롤링 실행
-    thread = threading.Thread(target=run_crawling, args=(keywords, session_id))
+    thread = threading.Thread(target=run_crawling, args=(keywords, session_id, max_count))
     thread.start()
     
     return jsonify({"message": "크롤링을 시작합니다."})
+
+
+@app.route('/stop', methods=['POST'])
+def stop():
+    session_id = session.get('session_id')
+    
+    if not session_id or session_id not in user_sessions:
+        return jsonify({"error": "진행 중인 크롤링이 없습니다."}), 400
+    
+    if not user_sessions[session_id]["status"]["running"]:
+        return jsonify({"error": "크롤링이 실행 중이 아닙니다."}), 400
+    
+    # 정지 플래그 설정
+    user_sessions[session_id]["stop_flag"] = True
+    
+    return jsonify({"message": "크롤링을 정지합니다."})
 
 
 @app.route('/status')

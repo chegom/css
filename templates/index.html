@@ -349,9 +349,23 @@
                     <input type="text" id="keyword5" placeholder="예: 플라스틱 금형">
                 </div>
             </div>
+            
+            <div class="options-row" style="display: flex; gap: 20px; align-items: center; margin-bottom: 25px; flex-wrap: wrap;">
+                <div class="input-group" style="flex: 0 0 auto; margin-bottom: 0;">
+                    <label>수집 개수 제한</label>
+                    <input type="number" id="maxCount" placeholder="0 = 무제한" min="0" style="width: 150px;">
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">
+                    💡 0 또는 비워두면 제한 없이 모두 수집합니다
+                </p>
+            </div>
+            
             <div class="btn-group">
                 <button class="btn btn-primary" id="startBtn" onclick="startCrawling()">
                     <span>🚀</span> 크롤링 시작
+                </button>
+                <button class="btn btn-stop" id="stopBtn" onclick="stopCrawling()" disabled style="background: #ef4444; color: white;">
+                    <span>⏹️</span> 정지
                 </button>
                 <button class="btn btn-secondary" id="downloadBtn" onclick="downloadExcel()" disabled>
                     <span>📥</span> 엑셀 다운로드
@@ -409,8 +423,11 @@
                 return;
             }
 
+            const maxCount = parseInt(document.getElementById('maxCount').value) || 0;
+
             // UI 업데이트
             document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
             document.getElementById('downloadBtn').disabled = true;
             document.getElementById('statusSection').classList.add('active');
             document.getElementById('resultsSection').classList.remove('active');
@@ -419,7 +436,7 @@
             fetch('/crawl', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keywords: keywords })
+                body: JSON.stringify({ keywords: keywords, maxCount: maxCount })
             })
             .then(response => response.json())
             .then(data => {
@@ -437,6 +454,21 @@
             });
         }
 
+        function stopCrawling() {
+            fetch('/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('statusText').textContent = '정지 요청 중...';
+                document.getElementById('stopBtn').disabled = true;
+            })
+            .catch(error => {
+                alert('정지 요청 실패: ' + error);
+            });
+        }
+
         function checkStatus() {
             fetch('/status')
             .then(response => response.json())
@@ -445,12 +477,7 @@
 
                 if (data.completed || !data.running) {
                     clearInterval(checkInterval);
-                    
-                    if (data.completed) {
-                        loadResults();
-                    } else {
-                        resetUI();
-                    }
+                    loadResults();
                 }
             });
         }
@@ -479,6 +506,7 @@
                 document.getElementById('statusSection').classList.remove('active');
                 document.getElementById('resultsSection').classList.add('active');
                 document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
                 document.getElementById('downloadBtn').disabled = data.length === 0;
             });
         }
@@ -489,6 +517,7 @@
 
         function resetUI() {
             document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
             document.getElementById('statusSection').classList.remove('active');
         }
     </script>
