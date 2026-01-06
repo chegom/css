@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 크롤링 결과
+*.xlsx
+*.xls
+debug_*.html
+
+# 환경 설정
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+

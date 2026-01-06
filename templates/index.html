@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>회사정보 크롤러</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #10b981;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(at 20% 80%, rgba(37, 99, 235, 0.15) 0%, transparent 50%),
+                radial-gradient(at 80% 20%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .search-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 30px;
+            border: 1px solid var(--border);
+            margin-bottom: 30px;
+        }
+
+        .search-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .search-section h2::before {
+            content: "🔍";
+        }
+
+        .keyword-inputs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        }
+
+        .input-group input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px 30px;
+            border: 1px solid var(--border);
+            margin-bottom: 30px;
+            display: none;
+        }
+
+        .status-section.active {
+            display: block;
+        }
+
+        .status-content {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-text {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .results-section {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 30px;
+            border: 1px solid var(--border);
+            display: none;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .results-header h2 {
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .results-header h2::before {
+            content: "📊";
+        }
+
+        .results-count {
+            background: var(--primary);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg-dark);
+            font-weight: 600;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        tr:hover {
+            background: rgba(37, 99, 235, 0.1);
+        }
+
+        td {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        td.email {
+            color: var(--secondary);
+        }
+
+        td a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        td a:hover {
+            text-decoration: underline;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8rem; }
+            .container { padding: 20px 15px; }
+            .search-section, .results-section { padding: 20px; }
+            .btn { padding: 12px 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>회사정보 크롤러</h1>
+            <p class="subtitle">네이버 검색 결과에서 회사 정보를 자동으로 수집합니다</p>
+        </header>
+
+        <section class="search-section">
+            <h2>검색어 입력 (최대 5개)</h2>
+            <div class="keyword-inputs">
+                <div class="input-group">
+                    <label>검색어 1</label>
+                    <input type="text" id="keyword1" placeholder="예: 금형 제조업체">
+                </div>
+                <div class="input-group">
+                    <label>검색어 2</label>
+                    <input type="text" id="keyword2" placeholder="예: 사출금형 업체">
+                </div>
+                <div class="input-group">
+                    <label>검색어 3</label>
+                    <input type="text" id="keyword3" placeholder="예: 프레스금형 업체">
+                </div>
+                <div class="input-group">
+                    <label>검색어 4</label>
+                    <input type="text" id="keyword4" placeholder="예: 금형 공장">
+                </div>
+                <div class="input-group">
+                    <label>검색어 5</label>
+                    <input type="text" id="keyword5" placeholder="예: 플라스틱 금형">
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="startBtn" onclick="startCrawling()">
+                    <span>🚀</span> 크롤링 시작
+                </button>
+                <button class="btn btn-secondary" id="downloadBtn" onclick="downloadExcel()" disabled>
+                    <span>📥</span> 엑셀 다운로드
+                </button>
+            </div>
+        </section>
+
+        <section class="status-section" id="statusSection">
+            <div class="status-content">
+                <div class="spinner"></div>
+                <span class="status-text" id="statusText">크롤링 준비 중...</span>
+            </div>
+        </section>
+
+        <section class="results-section" id="resultsSection">
+            <div class="results-header">
+                <h2>검색 결과</h2>
+                <span class="results-count" id="resultsCount">0개 회사</span>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>회사명</th>
+                            <th>사이트명</th>
+                            <th>이메일</th>
+                            <th>대표자명</th>
+                            <th>회사주소</th>
+                            <th>URL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <footer>
+            <p>© 2026 회사정보 크롤러 - 네이버 웹 검색 기반</p>
+        </footer>
+    </div>
+
+    <script>
+        let checkInterval;
+
+        function startCrawling() {
+            const keywords = [];
+            for (let i = 1; i <= 5; i++) {
+                const value = document.getElementById(`keyword${i}`).value.trim();
+                if (value) keywords.push(value);
+            }
+
+            if (keywords.length === 0) {
+                alert('최소 1개의 검색어를 입력해주세요.');
+                return;
+            }
+
+            // UI 업데이트
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('downloadBtn').disabled = true;
+            document.getElementById('statusSection').classList.add('active');
+            document.getElementById('resultsSection').classList.remove('active');
+
+            // 크롤링 시작 요청
+            fetch('/crawl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keywords: keywords })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    resetUI();
+                    return;
+                }
+                // 상태 체크 시작
+                checkInterval = setInterval(checkStatus, 1000);
+            })
+            .catch(error => {
+                alert('오류가 발생했습니다: ' + error);
+                resetUI();
+            });
+        }
+
+        function checkStatus() {
+            fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('statusText').textContent = data.progress;
+
+                if (data.completed || !data.running) {
+                    clearInterval(checkInterval);
+                    
+                    if (data.completed) {
+                        loadResults();
+                    } else {
+                        resetUI();
+                    }
+                }
+            });
+        }
+
+        function loadResults() {
+            fetch('/results')
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('resultsBody');
+                tbody.innerHTML = '';
+
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${item.회사명 || '-'}</td>
+                        <td>${item.사이트명 || '-'}</td>
+                        <td class="email">${item.이메일 || '-'}</td>
+                        <td>${item.대표자명 || '-'}</td>
+                        <td title="${item.회사주소 || ''}">${item.회사주소 || '-'}</td>
+                        <td><a href="${item.URL}" target="_blank">바로가기</a></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                document.getElementById('resultsCount').textContent = `${data.length}개 회사`;
+                document.getElementById('statusSection').classList.remove('active');
+                document.getElementById('resultsSection').classList.add('active');
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('downloadBtn').disabled = data.length === 0;
+            });
+        }
+
+        function downloadExcel() {
+            window.location.href = '/download';
+        }
+
+        function resetUI() {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('statusSection').classList.remove('active');
+        }
+    </script>
+</body>
+</html>
+
