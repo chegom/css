@@ -328,7 +328,7 @@
     <div class="container">
         <header>
             <h1>회사정보 크롤러</h1>
-            <p class="subtitle">네이버 검색 결과에서 회사 정보를 자동으로 수집합니다</p>
+            <p class="subtitle">네이버와 다음 검색 결과에서 회사 정보를 자동으로 수집합니다</p>
         </header>
 
         <section class="search-section">
@@ -361,19 +361,6 @@
                     <label>수집 개수 제한</label>
                     <input type="number" id="maxCount" placeholder="0 = 무제한" min="0" style="width: 130px;">
                 </div>
-                <div class="input-group" style="flex: 0 0 auto; margin-bottom: 0;">
-                    <label>검색 범위 (페이지)</label>
-                    <select id="searchPages" style="width: 130px; padding: 14px 16px; border: 2px solid var(--border); border-radius: 10px; background: var(--bg-dark); color: var(--text-primary); font-size: 1rem;">
-                        <option value="3">3 페이지</option>
-                        <option value="5" selected>5 페이지</option>
-                        <option value="10">10 페이지</option>
-                        <option value="15">15 페이지</option>
-                        <option value="20">20 페이지 (느림)</option>
-                    </select>
-                </div>
-                <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;">
-                    💡 페이지가 많을수록 더 많은 결과 (시간 오래 걸림)
-                </p>
             </div>
             
             <div class="btn-group">
@@ -419,7 +406,7 @@
         </section>
 
         <footer>
-            <p>© 2026 회사정보 크롤러 - 네이버 웹 검색 기반</p>
+            <p>© 2026 회사정보 크롤러 - 네이버/다음 웹 검색 기반</p>
         </footer>
     </div>
 
@@ -439,7 +426,6 @@
             }
 
             const maxCount = parseInt(document.getElementById('maxCount').value) || 0;
-            const searchPages = parseInt(document.getElementById('searchPages').value) || 5;
 
             // UI 업데이트
             document.getElementById('startBtn').disabled = true;
@@ -452,7 +438,7 @@
             fetch('/crawl', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keywords: keywords, maxCount: maxCount, searchPages: searchPages })
+                body: JSON.stringify({ keywords: keywords, maxCount: maxCount, searchPages: 10 })
             })
             .then(response => response.json())
             .then(data => {
