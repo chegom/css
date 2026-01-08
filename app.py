@@ -218,122 +218,96 @@ def get_daum_links(driver, keyword, pages=5, max_urls=0):
     return list(set(links))
 
 
-def get_saramin_company_links(driver, keyword, pages=10, max_urls=0):
-    """사람인 사이트에서 회사 검색하여 회사 상세 페이지 링크 수집 (목표 개수에 도달할 때까지 페이지 확장)"""
+def get_saramin_company_links(driver, keyword, pages=1, max_urls=0):
+    """사람인 사이트에서 회사 검색하여 회사 상세 페이지 링크 수집 (1페이지만 - 디버깅용)"""
     links = []
-    current_page = 1
-    max_pages = pages * 3  # 최대 3배까지 확장 가능
     
     try:
-        # 사람인 회사 검색 페이지
-        while current_page <= max_pages:
-            # 사람인 검색 URL (recruitPage 파라미터 사용)
-            if current_page == 1:
-                url = f"https://www.saramin.co.kr/zf_user/search?searchword={quote_plus(keyword)}&go=&flag=n&searchMode=1&searchType=search&search_done=y&search_optional_item=n"
-            else:
-                url = f"https://www.saramin.co.kr/zf_user/search?searchword={quote_plus(keyword)}&go=&flag=n&searchMode=1&searchType=search&search_done=y&search_optional_item=n&recruitPage={current_page}"
-            driver.get(url)
-            time.sleep(3)  # 페이지 로딩 대기 시간 증가
+        # 사람인 회사 검색 페이지 (1페이지만)
+        # 사람인 검색 URL (1페이지)
+        url = f"https://www.saramin.co.kr/zf_user/search?searchword={quote_plus(keyword)}&go=&flag=n&searchMode=1&searchType=search&search_done=y&search_optional_item=n"
+        driver.get(url)
+        time.sleep(5)  # 페이지 로딩 대기 시간 증가 (명확하게 로드되도록)
+        
+        # 사람인 검색 결과에서 회사 상세 페이지 링크 찾기
+        # 모든 방법을 병렬로 시도하여 최대한 많이 수집
+        try:
+            # 방법 1: 모든 회사 상세 페이지 링크 찾기 (가장 확실한 방법 - 먼저 실행)
+            all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
+            for link in all_company_links:
+                try:
+                    href = link.get_attribute("href")
+                    if href:
+                        if href.startswith("/"):
+                            href = "https://www.saramin.co.kr" + href
+                        # 쿼리 파라미터 제거하여 중복 방지
+                        href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                        if "/zf_user/company" in href_clean and href_clean not in links:
+                            links.append(href_clean)
+                except:
+                    pass
             
-            page_links_count = len(links)
+            # 방법 2: "기업정보" 텍스트가 있는 링크 찾기
+            company_info_links = driver.find_elements(By.XPATH, "//a[contains(text(), '기업정보')]")
+            for link in company_info_links:
+                try:
+                    href = link.get_attribute("href")
+                    if href:
+                        if href.startswith("/"):
+                            href = "https://www.saramin.co.kr" + href
+                        href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                        if "/zf_user/company" in href_clean and href_clean not in links:
+                            links.append(href_clean)
+                except:
+                    pass
             
-            # 사람인 검색 결과에서 회사 상세 페이지 링크 찾기
-            # 모든 방법을 병렬로 시도하여 최대한 많이 수집
+            # 방법 3: 기업정보 버튼/링크 찾기 (다양한 선택자)
+            company_info_selectors = [
+                "a[href*='/zf_user/company']",
+                "a.company_info",
+                ".company_info a",
+                "a[title*='기업정보']",
+                "a[aria-label*='기업정보']",
+                ".btn_company_info",
+                ".company_info_btn",
+            ]
+            for selector in company_info_selectors:
+                try:
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in elements:
+                        href = elem.get_attribute("href")
+                        if href:
+                            if href.startswith("/"):
+                                href = "https://www.saramin.co.kr" + href
+                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                            if "/zf_user/company" in href_clean and href_clean not in links:
+                                links.append(href_clean)
+                except:
+                    pass
+            
+            # 방법 4: 각 채용 공고 항목에서 회사 정보 영역 찾기
             try:
-                # 방법 1: 모든 회사 상세 페이지 링크 찾기 (가장 확실한 방법 - 먼저 실행)
-                all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-                for link in all_company_links:
+                job_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .recruit_item, .job_item, .list_item, [class*='item'], [class*='recruit']")
+                for item in job_items:
                     try:
-                        href = link.get_attribute("href")
-                        if href:
-                            if href.startswith("/"):
-                                href = "https://www.saramin.co.kr" + href
-                            # 쿼리 파라미터 제거하여 중복 방지
-                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                            if "/zf_user/company" in href_clean and href_clean not in links:
-                                links.append(href_clean)
-                    except:
-                        pass
-                
-                # 방법 2: "기업정보" 텍스트가 있는 링크 찾기
-                company_info_links = driver.find_elements(By.XPATH, "//a[contains(text(), '기업정보')]")
-                for link in company_info_links:
-                    try:
-                        href = link.get_attribute("href")
-                        if href:
-                            if href.startswith("/"):
-                                href = "https://www.saramin.co.kr" + href
-                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                            if "/zf_user/company" in href_clean and href_clean not in links:
-                                links.append(href_clean)
-                    except:
-                        pass
-                
-                # 방법 3: 기업정보 버튼/링크 찾기 (다양한 선택자)
-                company_info_selectors = [
-                    "a[href*='/zf_user/company']",
-                    "a.company_info",
-                    ".company_info a",
-                    "a[title*='기업정보']",
-                    "a[aria-label*='기업정보']",
-                    ".btn_company_info",
-                    ".company_info_btn",
-                ]
-                for selector in company_info_selectors:
-                    try:
-                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                        for elem in elements:
-                            href = elem.get_attribute("href")
+                        # 기업정보 링크 찾기
+                        company_links = item.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
+                        for company_link in company_links:
+                            href = company_link.get_attribute("href")
                             if href:
                                 if href.startswith("/"):
                                     href = "https://www.saramin.co.kr" + href
                                 href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                                if "/zf_user/company" in href_clean and href_clean not in links:
+                                if href_clean not in links:
                                     links.append(href_clean)
                     except:
                         pass
-                
-                # 방법 4: 각 채용 공고 항목에서 회사 정보 영역 찾기
-                try:
-                    job_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .recruit_item, .job_item, .list_item, [class*='item'], [class*='recruit']")
-                    for item in job_items:
-                        try:
-                            # 기업정보 링크 찾기
-                            company_links = item.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-                            for company_link in company_links:
-                                href = company_link.get_attribute("href")
-                                if href:
-                                    if href.startswith("/"):
-                                        href = "https://www.saramin.co.kr" + href
-                                    href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                                    if href_clean not in links:
-                                        links.append(href_clean)
-                        except:
-                            pass
-                except:
-                    pass
-            except Exception as e:
-                pass
-            
-            # 목표 개수에 도달했으면 중단
-            if max_urls > 0 and len(links) >= max_urls:
-                break
-            
-            # 기본 페이지 범위를 넘었는데 새 링크가 없으면 중단
-            if current_page > pages and len(links) == page_links_count:
-                break
-            
-            # 다음 페이지가 없으면 중단
-            try:
-                next_button = driver.find_element(By.CSS_SELECTOR, ".paging a.next")
-                if "disabled" in next_button.get_attribute("class") or not next_button.is_enabled():
-                    if current_page > pages:  # 기본 페이지 범위를 넘었으면 중단
-                        break
             except:
-                if current_page > pages:  # 기본 페이지 범위를 넘었으면 중단
-                    break
-            
-            current_page += 1
+                pass
+        except Exception as e:
+            pass
+        
+        # 1페이지만 검색하므로 여기서 종료
     except Exception as e:
         pass
     
@@ -1060,46 +1034,47 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
                 break
                 
             if keyword.strip():
-                # 사람인 검색 (1순위 - 가장 먼저 실행, 기본 10페이지)
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 중... ({i+1}/{len(keywords)})"
-                saramin_urls = get_saramin_company_links(driver, keyword.strip(), pages=10, max_urls=0)
+                # 사람인 검색 (1페이지만 - 디버깅용)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 중... ({i+1}/{len(keywords)}) [1페이지만]"
+                saramin_urls = get_saramin_company_links(driver, keyword.strip(), pages=1, max_urls=0)
                 all_urls.extend(saramin_urls)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 완료: {len(saramin_urls)}개 링크 발견"
                 
                 # 정지 버튼 체크
                 if user_sessions[session_id]["stop_flag"]:
                     break
                 
-                # 네이버 검색
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 중... ({i+1}/{len(keywords)})"
-                naver_urls = get_naver_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
-                all_urls.extend(naver_urls)
-                
-                # 정지 버튼 체크
-                if user_sessions[session_id]["stop_flag"]:
-                    break
-                
-                # 다음 검색
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 다음 검색 중... ({i+1}/{len(keywords)})"
-                daum_urls = get_daum_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
-                all_urls.extend(daum_urls)
-                
-                # 정지 버튼 체크
-                if user_sessions[session_id]["stop_flag"]:
-                    break
-                
-                # 잡코리아 검색
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 잡코리아 검색 중... ({i+1}/{len(keywords)})"
-                jobkorea_urls = get_jobkorea_company_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
-                all_urls.extend(jobkorea_urls)
-                
-                # 정지 버튼 체크
-                if user_sessions[session_id]["stop_flag"]:
-                    break
-                
-                # 알바몬 검색
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 알바몬 검색 중... ({i+1}/{len(keywords)})"
-                albamon_urls = get_albamon_company_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
-                all_urls.extend(albamon_urls)
+                # # 네이버 검색 (주석처리 - 디버깅용)
+                # user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 중... ({i+1}/{len(keywords)})"
+                # naver_urls = get_naver_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
+                # all_urls.extend(naver_urls)
+                # 
+                # # 정지 버튼 체크
+                # if user_sessions[session_id]["stop_flag"]:
+                #     break
+                # 
+                # # 다음 검색 (주석처리 - 디버깅용)
+                # user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 다음 검색 중... ({i+1}/{len(keywords)})"
+                # daum_urls = get_daum_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
+                # all_urls.extend(daum_urls)
+                # 
+                # # 정지 버튼 체크
+                # if user_sessions[session_id]["stop_flag"]:
+                #     break
+                # 
+                # # 잡코리아 검색 (주석처리 - 디버깅용)
+                # user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 잡코리아 검색 중... ({i+1}/{len(keywords)})"
+                # jobkorea_urls = get_jobkorea_company_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
+                # all_urls.extend(jobkorea_urls)
+                # 
+                # # 정지 버튼 체크
+                # if user_sessions[session_id]["stop_flag"]:
+                #     break
+                # 
+                # # 알바몬 검색 (주석처리 - 디버깅용)
+                # user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 알바몬 검색 중... ({i+1}/{len(keywords)})"
+                # albamon_urls = get_albamon_company_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
+                # all_urls.extend(albamon_urls)
         
         target_urls = list(set(all_urls))
         total_sites = len(target_urls)
