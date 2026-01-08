@@ -114,18 +114,80 @@ def get_naver_links(driver, keyword, pages=5, max_urls=0):
     max_pages = pages * 3  # 최대 3배까지 확장 가능
     
     while current_page <= max_pages:
-        # 네이버 검색 URL 형식 (실제 사용되는 형식)
+        # 네이버 검색 URL 형식 (사용자가 제공한 형식 사용)
         if current_page == 1:
-            url = f"https://search.naver.com/search.naver?nso=&query={quote_plus(keyword)}&sm=tab_pge&ssc=tab.nx.all"
+            url = f"https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query={quote_plus(keyword)}"
         else:
             start = (current_page - 1) * 10 + 1
             url = f"https://search.naver.com/search.naver?nso=&page={current_page}&query={quote_plus(keyword)}&sm=tab_pge&ssc=tab.ur.all&start={start}"
+        
+        print(f"[네이버] 페이지 {current_page} 크롤링 중: {url}")
         driver.get(url)
-        time.sleep(2)
+        time.sleep(3)  # 페이지 로딩 대기
         
         page_links_count = len(links)
         
-        # 네이버 웹 검색 결과의 다양한 선택자
+        # 1. 파워링크 광고에서 링크 추출 (가장 중요!)
+        print(f"[네이버] 파워링크 광고 링크 추출 시작...")
+        powerlink_selectors = [
+            ".powerlink_area a",
+            ".ad_powerlink a",
+            ".power_link a",
+            "[class*='powerlink'] a",
+            "[class*='power_link'] a",
+            "[id*='powerlink'] a",
+            "[id*='power_link'] a",
+            ".ad_area a",
+            ".ad_section a",
+        ]
+        
+        for selector in powerlink_selectors:
+            try:
+                powerlink_ads = driver.find_elements(By.CSS_SELECTOR, selector)
+                print(f"[네이버] 파워링크 선택자 ({selector}): {len(powerlink_ads)}개 발견")
+                for ad in powerlink_ads:
+                    try:
+                        href = ad.get_attribute("href")
+                        if href and href.startswith("http"):
+                            # 네이버 링크 제외
+                            if "naver.com" not in href.lower() and "search.naver" not in href.lower():
+                                if is_valid_company_url(href):
+                                    if href not in links:
+                                        links.append(href)
+                                        print(f"[네이버] 파워링크 링크 추가: {href}")
+                    except:
+                        pass
+            except:
+                pass
+        
+        # 2. 파워링크 영역에서 URL 텍스트 직접 추출
+        try:
+            powerlink_areas = driver.find_elements(By.CSS_SELECTOR, ".powerlink_area, .ad_powerlink, [class*='powerlink'], [class*='power_link']")
+            print(f"[네이버] 파워링크 영역 {len(powerlink_areas)}개 발견")
+            for area in powerlink_areas:
+                try:
+                    # 영역 내의 모든 텍스트에서 URL 패턴 찾기
+                    area_text = area.text
+                    area_html = area.get_attribute("innerHTML") or ""
+                    
+                    # URL 패턴 찾기 (http:// 또는 https://로 시작)
+                    url_pattern = r'https?://[^\s<>"\']+[^\s<>"\'.,;!?]'
+                    found_urls = re.findall(url_pattern, area_text + " " + area_html)
+                    
+                    for found_url in found_urls:
+                        # 네이버 링크 제외
+                        if "naver.com" not in found_url.lower() and "search.naver" not in found_url.lower():
+                            if is_valid_company_url(found_url):
+                                if found_url not in links:
+                                    links.append(found_url)
+                                    print(f"[네이버] 파워링크 텍스트에서 URL 추출: {found_url}")
+                except:
+                    pass
+        except:
+            pass
+        
+        # 3. 네이버 웹 검색 결과의 다양한 선택자
+        print(f"[네이버] 일반 검색 결과 링크 추출 시작...")
         selectors = [
             "a.link_tit", "div.total_tit a", "a.total_tit", "a.title_link",
             "div.web_item a.link", "div.lst_view a", "div.api_txt_lines a",
@@ -144,6 +206,8 @@ def get_naver_links(driver, keyword, pages=5, max_urls=0):
                                 links.append(href)
             except:
                 pass
+        
+        print(f"[네이버] 페이지 {current_page}에서 {len(links) - page_links_count}개 링크 발견 (총 {len(links)}개)")
         
         # 목표 개수에 도달했거나, 기본 페이지 범위를 넘었는데 새 링크가 없으면 중단
         if max_urls > 0 and len(links) >= max_urls:
@@ -218,99 +282,395 @@ def get_daum_links(driver, keyword, pages=5, max_urls=0):
     return list(set(links))
 
 
-def get_saramin_company_links(driver, keyword, pages=1, max_urls=0):
-    """사람인 사이트에서 회사 검색하여 회사 상세 페이지 링크 수집 (1페이지만 - 디버깅용)"""
+def get_saramin_company_links(driver, keyword, pages=10, max_urls=0):
+    """사람인 사이트에서 회사 검색하여 회사 상세 페이지 링크 수집 (목표 개수에 도달할 때까지 페이지 확장)"""
     links = []
+    current_page = 1
+    max_pages = pages * 3  # 최대 3배까지 확장 가능
     
     try:
-        # 사람인 회사 검색 페이지 (1페이지만)
-        # 사람인 검색 URL (1페이지)
-        url = f"https://www.saramin.co.kr/zf_user/search?searchword={quote_plus(keyword)}&go=&flag=n&searchMode=1&searchType=search&search_done=y&search_optional_item=n"
-        driver.get(url)
-        time.sleep(5)  # 페이지 로딩 대기 시간 증가 (명확하게 로드되도록)
-        
-        # 사람인 검색 결과에서 회사 상세 페이지 링크 찾기
-        # 모든 방법을 병렬로 시도하여 최대한 많이 수집
-        try:
-            # 방법 1: 모든 회사 상세 페이지 링크 찾기 (가장 확실한 방법 - 먼저 실행)
-            all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-            for link in all_company_links:
-                try:
-                    href = link.get_attribute("href")
-                    if href:
-                        if href.startswith("/"):
-                            href = "https://www.saramin.co.kr" + href
-                        # 쿼리 파라미터 제거하여 중복 방지
-                        href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                        if "/zf_user/company" in href_clean and href_clean not in links:
-                            links.append(href_clean)
-                except:
-                    pass
+        while current_page <= max_pages:
+            # 사람인 검색 URL (사용자가 제공한 형식 사용)
+            url = f"https://www.saramin.co.kr/zf_user/search?search_area=main&search_done=y&search_optional_item=n&searchType=search&searchword={quote_plus(keyword)}&recruitPage={current_page}"
+            print(f"[사람인] 페이지 {current_page} 크롤링 중: {url}")
+            driver.get(url)
+            time.sleep(3)  # 페이지 로딩 대기
             
-            # 방법 2: "기업정보" 텍스트가 있는 링크 찾기
-            company_info_links = driver.find_elements(By.XPATH, "//a[contains(text(), '기업정보')]")
-            for link in company_info_links:
-                try:
-                    href = link.get_attribute("href")
-                    if href:
-                        if href.startswith("/"):
-                            href = "https://www.saramin.co.kr" + href
-                        href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                        if "/zf_user/company" in href_clean and href_clean not in links:
-                            links.append(href_clean)
-                except:
-                    pass
+            page_links_count = len(links)
             
-            # 방법 3: 기업정보 버튼/링크 찾기 (다양한 선택자)
-            company_info_selectors = [
-                "a[href*='/zf_user/company']",
-                "a.company_info",
-                ".company_info a",
-                "a[title*='기업정보']",
-                "a[aria-label*='기업정보']",
-                ".btn_company_info",
-                ".company_info_btn",
-            ]
-            for selector in company_info_selectors:
-                try:
-                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    for elem in elements:
-                        href = elem.get_attribute("href")
+            # 사람인 검색 결과에서 회사 상세 페이지 링크 찾기
+            # 모든 방법을 병렬로 시도하여 최대한 많이 수집
+            try:
+                # 페이지가 완전히 로드될 때까지 대기
+                time.sleep(3)
+                
+                # 페이지 소스 확인 (디버깅용)
+                page_source_snippet = driver.page_source[:2000] if len(driver.page_source) > 2000 else driver.page_source
+                print(f"[사람인] 페이지 소스 일부: {page_source_snippet[:500]}...")
+                
+                # 페이지에 "/zf_user/company"가 있는지 확인
+                if "/zf_user/company" not in driver.page_source:
+                    print(f"[사람인] 경고: 페이지에 '/zf_user/company' 링크가 없습니다!")
+                else:
+                    print(f"[사람인] 페이지에 '/zf_user/company' 링크가 있습니다.")
+                
+                # 방법 1: 모든 회사 관련 링크 찾기 (company-info/view 포함)
+                # /zf_user/company-info/view 링크도 수집 (이 링크를 따라가면 회사 상세 페이지로 갈 수 있음)
+                all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
+                print(f"[사람인] 방법1: {len(all_company_links)}개 링크 발견")
+                for link in all_company_links:
+                    try:
+                        href = link.get_attribute("href")
                         if href:
                             if href.startswith("/"):
                                 href = "https://www.saramin.co.kr" + href
-                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                            if "/zf_user/company" in href_clean and href_clean not in links:
-                                links.append(href_clean)
-                except:
-                    pass
-            
-            # 방법 4: 각 채용 공고 항목에서 회사 정보 영역 찾기
-            try:
-                job_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .recruit_item, .job_item, .list_item, [class*='item'], [class*='recruit']")
-                for item in job_items:
+                            # 쿼리 파라미터는 유지 (csn 파라미터가 중요할 수 있음)
+                            href_clean = href.split("#")[0].rstrip("/")
+                            
+                            # /zf_user/company-info/view 링크 수집 (이 링크를 따라가면 회사 상세 페이지로 갈 수 있음)
+                            if "/zf_user/company-info/view" in href_clean:
+                                if href_clean not in links:
+                                    links.append(href_clean)
+                                    print(f"[사람인] 링크 추가 (company-info/view): {href_clean}")
+                            # 정확히 /zf_user/company/로 시작하는 링크도 수집
+                            elif (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                  href_clean.startswith("/zf_user/company/")):
+                                # company-review, jobs는 제외하지만 company-info/view는 포함
+                                if ("/zf_user/company-review" not in href_clean and
+                                    "/zf_user/jobs" not in href_clean and
+                                    "/zf_user/company/" in href_clean and
+                                    href_clean not in links):
+                                    links.append(href_clean)
+                                    print(f"[사람인] 링크 추가: {href_clean}")
+                                else:
+                                    print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
+                            else:
+                                print(f"[사람인] 링크 제외 (형식 불일치): {href_clean}")
+                    except Exception as e:
+                        print(f"[사람인] 링크 처리 오류: {e}")
+                        pass
+                
+                # 방법 2: "기업정보" 텍스트가 있는 링크 찾기 (전체 페이지에서) - 가장 중요!
+                # 다양한 XPath 시도 (company-info/view 링크 포함)
+                xpath_selectors = [
+                    "//a[contains(text(), '기업정보')]",
+                    "//a[text()='기업정보']",
+                    "//button[contains(text(), '기업정보')]",
+                    "//a[@title='기업정보']",
+                    "//a[contains(@class, 'company_info')]",
+                    "//a[contains(@class, 'btn_info')]",
+                    "//a[contains(@class, 'company_popup')]",
+                    "//a[contains(@href, '/zf_user/company-info/view')]",
+                    "//a[contains(@href, '/zf_user/company/')]",
+                ]
+                
+                all_company_info_links = []
+                for xpath in xpath_selectors:
                     try:
-                        # 기업정보 링크 찾기
-                        company_links = item.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-                        for company_link in company_links:
-                            href = company_link.get_attribute("href")
+                        found_links = driver.find_elements(By.XPATH, xpath)
+                        print(f"[사람인] 방법2 ({xpath}): {len(found_links)}개 발견")
+                        all_company_info_links.extend(found_links)
+                    except Exception as e:
+                        print(f"[사람인] 방법2 XPath 오류 ({xpath}): {e}")
+                        pass
+                
+                # 중복 제거
+                seen_elements = set()
+                unique_company_info_links = []
+                for link in all_company_info_links:
+                    try:
+                        elem_id = link.id
+                        if elem_id not in seen_elements:
+                            seen_elements.add(elem_id)
+                            unique_company_info_links.append(link)
+                    except:
+                        unique_company_info_links.append(link)
+                
+                print(f"[사람인] 방법2: 총 {len(unique_company_info_links)}개 '기업정보' 링크 발견 (중복 제거 후)")
+                
+                for link in unique_company_info_links:
+                    try:
+                        href = link.get_attribute("href")
+                        if not href:
+                            # onclick 속성 확인
+                            onclick = link.get_attribute("onclick")
+                            if onclick and "/zf_user/company" in onclick:
+                                url_match = re.search(r'/zf_user/company/[^\s\'"]+', onclick)
+                                if url_match:
+                                    href = "https://www.saramin.co.kr" + url_match.group(0)
+                        
+                        if href:
+                            if href.startswith("/"):
+                                href = "https://www.saramin.co.kr" + href
+                            # 쿼리 파라미터는 유지
+                            href_clean = href.split("#")[0].rstrip("/")
+                            
+                            # /zf_user/company-info/view 링크 수집
+                            if "/zf_user/company-info/view" in href_clean:
+                                if href_clean not in links:
+                                    links.append(href_clean)
+                                    print(f"[사람인] 링크 추가 (기업정보 - company-info/view): {href_clean}")
+                            # 정확히 /zf_user/company/로 시작하는 링크도 수집
+                            elif (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                  href_clean.startswith("/zf_user/company/")):
+                                if ("/zf_user/company-review" not in href_clean and
+                                    "/zf_user/jobs" not in href_clean and
+                                    "/zf_user/company/" in href_clean and
+                                    href_clean not in links):
+                                    links.append(href_clean)
+                                    print(f"[사람인] 링크 추가 (기업정보): {href_clean}")
+                                else:
+                                    print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
+                            else:
+                                print(f"[사람인] 링크 제외 (형식 불일치): {href_clean}")
+                    except Exception as e:
+                        print(f"[사람인] 방법2 링크 처리 오류: {e}")
+                        pass
+                
+                # 방법 3: 기업정보 버튼/링크 찾기 (다양한 선택자)
+                company_info_selectors = [
+                    "a[href*='/zf_user/company']",
+                    "a.company_info",
+                    ".company_info a",
+                    "a[title*='기업정보']",
+                    "a[aria-label*='기업정보']",
+                    ".btn_company_info",
+                    ".company_info_btn",
+                ]
+                for selector in company_info_selectors:
+                    try:
+                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                        for elem in elements:
+                            href = elem.get_attribute("href")
                             if href:
                                 if href.startswith("/"):
                                     href = "https://www.saramin.co.kr" + href
                                 href_clean = href.split("?")[0].split("#")[0].rstrip("/")
-                                if href_clean not in links:
-                                    links.append(href_clean)
+                                # 정확히 /zf_user/company/로 시작하는 링크만 수집
+                                if (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                    href_clean.startswith("/zf_user/company/")):
+                                    if ("/zf_user/company-info" not in href_clean and 
+                                        "/zf_user/company-review" not in href_clean and
+                                        "/zf_user/jobs" not in href_clean and
+                                        "/zf_user/company/" in href_clean and
+                                        href_clean not in links):
+                                        links.append(href_clean)
+                                        print(f"[사람인] 링크 추가 (선택자 {selector}): {href_clean}")
+                                    else:
+                                        print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
                     except:
                         pass
+                
+                # 방법 4: 각 채용 공고 항목에서 "기업정보" 버튼 찾기 (가장 중요!)
+                try:
+                    # 사람인 검색 결과의 채용 공고 항목 찾기 (더 많은 선택자 시도)
+                    job_item_selectors = [
+                        ".item_recruit",
+                        ".recruit_item", 
+                        ".job_item", 
+                        ".list_item",
+                        "[class*='item_recruit']",
+                        "[class*='recruit_item']",
+                        "[class*='list_item']",
+                        "div[class*='item']",
+                        "li[class*='item']",
+                    ]
+                    
+                    all_job_items = []
+                    for selector in job_item_selectors:
+                        try:
+                            items = driver.find_elements(By.CSS_SELECTOR, selector)
+                            all_job_items.extend(items)
+                        except:
+                            pass
+                    
+                    # 중복 제거
+                    seen_items = set()
+                    unique_job_items = []
+                    for item in all_job_items:
+                        try:
+                            item_id = item.id
+                            if item_id not in seen_items:
+                                seen_items.add(item_id)
+                                unique_job_items.append(item)
+                        except:
+                            unique_job_items.append(item)
+                    
+                    print(f"[사람인] 방법4: {len(unique_job_items)}개 채용 공고 항목 발견")
+                    
+                    for idx, item in enumerate(unique_job_items):
+                        try:
+                            # 각 항목에서 "기업정보" 버튼/링크 찾기
+                            # 방법 4-1: "기업정보" 텍스트가 있는 링크 찾기
+                            company_info_buttons = item.find_elements(By.XPATH, ".//a[contains(text(), '기업정보')]")
+                            
+                            # 방법 4-2: href에 /zf_user/company 또는 /zf_user/company-info/view가 있는 링크 찾기
+                            if not company_info_buttons:
+                                company_info_buttons = item.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company'], a[href*='/zf_user/company-info/view']")
+                            
+                            # 방법 4-2-1: btn_info 클래스가 있는 링크 찾기 (사용자가 제공한 HTML 구조)
+                            if not company_info_buttons:
+                                company_info_buttons = item.find_elements(By.CSS_SELECTOR, "a.btn_info, a.company_popup, .area_corp_info a")
+                            
+                            # 방법 4-3: 버튼 클래스가 있는 링크 찾기
+                            if not company_info_buttons:
+                                company_info_buttons = item.find_elements(By.CSS_SELECTOR, "a.btn, button, .btn_company_info, .company_info_btn")
+                            
+                            print(f"[사람인] 항목 {idx+1}: {len(company_info_buttons)}개 '기업정보' 버튼 발견")
+                            
+                            for button in company_info_buttons:
+                                try:
+                                    href = button.get_attribute("href")
+                                    if not href:
+                                        # onclick 속성에서 링크 추출 시도
+                                        onclick = button.get_attribute("onclick")
+                                        if onclick and "/zf_user/company" in onclick:
+                                            # onclick에서 URL 추출
+                                            import re
+                                            url_match = re.search(r'/zf_user/company/[^\s\'"]+', onclick)
+                                            if url_match:
+                                                href = "https://www.saramin.co.kr" + url_match.group(0)
+                                    
+                                    if href:
+                                        if href.startswith("/"):
+                                            href = "https://www.saramin.co.kr" + href
+                                        # 쿼리 파라미터는 유지
+                                        href_clean = href.split("#")[0].rstrip("/")
+                                        
+                                        # /zf_user/company-info/view 링크 수집
+                                        if "/zf_user/company-info/view" in href_clean:
+                                            if href_clean not in links:
+                                                links.append(href_clean)
+                                                print(f"[사람인] 링크 추가 (항목 {idx+1} '기업정보' 버튼 - company-info/view): {href_clean}")
+                                        # 정확히 /zf_user/company/로 시작하는 링크도 수집
+                                        elif (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                              href_clean.startswith("/zf_user/company/")):
+                                            if ("/zf_user/company-review" not in href_clean and
+                                                "/zf_user/jobs" not in href_clean and
+                                                "/zf_user/company/" in href_clean and
+                                                href_clean not in links):
+                                                links.append(href_clean)
+                                                print(f"[사람인] 링크 추가 (항목 {idx+1} '기업정보' 버튼): {href_clean}")
+                                            else:
+                                                print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
+                                        else:
+                                            print(f"[사람인] 링크 제외 (형식 불일치): {href_clean}")
+                                except Exception as e:
+                                    print(f"[사람인] 항목 {idx+1} 버튼 처리 오류: {e}")
+                                    pass
+                        except Exception as e:
+                            print(f"[사람인] 항목 {idx+1} 처리 오류: {e}")
+                            pass
+                except Exception as e:
+                    print(f"[사람인] 방법4 오류: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    pass
+                
+                # 방법 5: 사람인 검색 결과의 실제 구조에 맞는 선택자 추가
+                try:
+                    # 사람인 검색 결과 페이지의 실제 구조 확인
+                    page_html = driver.page_source
+                    if "/zf_user/company" in page_html:
+                        # 더 구체적인 선택자로 시도 (채용 공고 링크 제외)
+                        additional_selectors = [
+                            "a[href*='/zf_user/company']:not([href*='/zf_user/jobs'])",
+                            ".item_recruit a[href*='/zf_user/company']",
+                            ".list_item a[href*='/zf_user/company']",
+                            "[class*='item'] a[href*='/zf_user/company']",
+                        ]
+                        for selector in additional_selectors:
+                            try:
+                                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                                print(f"[사람인] 방법5 ({selector}): {len(elements)}개 요소 발견")
+                                for elem in elements:
+                                    href = elem.get_attribute("href")
+                                    if href and "/zf_user/company" in href:
+                                        if href.startswith("/"):
+                                            href = "https://www.saramin.co.kr" + href
+                                        href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                                        # 정확히 /zf_user/company/로 시작하는 링크만 수집
+                                        if (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                            href_clean.startswith("/zf_user/company/")):
+                                            if ("/zf_user/company-info" not in href_clean and 
+                                                "/zf_user/company-review" not in href_clean and
+                                                "/zf_user/jobs" not in href_clean and
+                                                "/zf_user/company/" in href_clean and
+                                                href_clean not in links):
+                                                links.append(href_clean)
+                                                print(f"[사람인] 링크 추가 (추가선택자 {selector}): {href_clean}")
+                                            else:
+                                                print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
+                                        else:
+                                            print(f"[사람인] 링크 제외 (형식 불일치): {href_clean}")
+                            except Exception as e:
+                                print(f"[사람인] 방법5 선택자 오류 ({selector}): {e}")
+                                pass
+                except Exception as e:
+                    print(f"[사람인] 방법5 오류: {e}")
+                    pass
+                
+                # 방법 6: 사람인 검색 결과에서 회사명 클릭 영역 찾기
+                try:
+                    # 각 채용 공고 항목에서 회사명 영역 찾기
+                    recruit_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .list_item, [class*='item_recruit'], [class*='list_item']")
+                    print(f"[사람인] 방법6: {len(recruit_items)}개 채용 공고 항목 발견")
+                    for item in recruit_items:
+                        try:
+                            # 회사명 영역에서 회사 상세 페이지 링크 찾기
+                            # 회사명은 보통 h2, h3, strong, a 태그에 있음
+                            company_name_elements = item.find_elements(By.CSS_SELECTOR, "h2 a, h3 a, strong a, .company_name a, a.company_name")
+                            for elem in company_name_elements:
+                                href = elem.get_attribute("href")
+                                if href and "/zf_user/company" in href:
+                                    if href.startswith("/"):
+                                        href = "https://www.saramin.co.kr" + href
+                                    href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                                    # 정확히 /zf_user/company/로 시작하는 링크만 수집
+                                    if (href_clean.startswith("https://www.saramin.co.kr/zf_user/company/") or 
+                                        href_clean.startswith("/zf_user/company/")):
+                                        if ("/zf_user/company-info" not in href_clean and 
+                                            "/zf_user/company-review" not in href_clean and
+                                            "/zf_user/jobs" not in href_clean and
+                                            "/zf_user/company/" in href_clean and
+                                            href_clean not in links):
+                                            links.append(href_clean)
+                                            print(f"[사람인] 링크 추가 (회사명 영역): {href_clean}")
+                                        else:
+                                            print(f"[사람인] 링크 제외 (잘못된 경로): {href_clean}")
+                                    else:
+                                        print(f"[사람인] 링크 제외 (형식 불일치): {href_clean}")
+                        except Exception as e:
+                            print(f"[사람인] 방법6 항목 처리 오류: {e}")
+                            pass
+                except Exception as e:
+                    print(f"[사람인] 방법6 오류: {e}")
+                    pass
+            except Exception as e:
+                print(f"[사람인] 링크 추출 오류: {e}")
+            
+            print(f"[사람인] 페이지 {current_page}에서 {len(links) - page_links_count}개 링크 발견 (총 {len(links)}개)")
+            
+            # 목표 개수에 도달했거나, 기본 페이지 범위를 넘었는데 새 링크가 없으면 중단
+            if max_urls > 0 and len(links) >= max_urls:
+                break
+            
+            # 기본 페이지 범위를 넘었는데 새 링크가 없으면 중단
+            if current_page > pages and len(links) == page_links_count:
+                break
+            
+            try:
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
             except:
                 pass
-        except Exception as e:
-            pass
+            
+            current_page += 1
         
-        # 1페이지만 검색하므로 여기서 종료
     except Exception as e:
-        pass
+        print(f"[사람인] 크롤링 오류: {e}")
     
+    print(f"[사람인] 총 {len(links)}개 회사 링크 수집 완료")
     return list(set(links))
 
 
@@ -460,31 +820,86 @@ def extract_company_info(driver, url):
         # 채용 사이트별 특별 처리
         url_lower = url.lower()
         
-        # 사람인 (saramin.co.kr) - 회사 상세 페이지인 경우
-        if "saramin.co.kr" in url_lower and "/zf_user/company" in url_lower:
+        # 사람인 (saramin.co.kr) - 회사 상세 페이지 또는 company-info/view 페이지인 경우
+        if "saramin.co.kr" in url_lower and ("/zf_user/company" in url_lower or "/zf_user/company-info/view" in url_lower):
+            print(f"[사람인 상세페이지] 접근 중: {url}")
             try:
-                # 회사명 추출 (사람인 구조)
+                # /zf_user/company-info/view 페이지인 경우, 회사 상세 페이지로 이동하는 링크 찾기
+                if "/zf_user/company-info/view" in url_lower:
+                    print(f"[사람인] company-info/view 페이지에서 회사 상세 페이지 링크 찾기...")
+                    time.sleep(2)
+                    
+                    # 회사 상세 페이지로 가는 링크 찾기
+                    company_detail_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company/']")
+                    for link in company_detail_links:
+                        try:
+                            href = link.get_attribute("href")
+                            if href and "/zf_user/company/" in href and "/zf_user/company-info" not in href:
+                                if href.startswith("/"):
+                                    href = "https://www.saramin.co.kr" + href
+                                print(f"[사람인] 회사 상세 페이지로 이동: {href}")
+                                driver.get(href)
+                                time.sleep(2)
+                                break
+                        except:
+                            pass
+                
+                # 페이지가 완전히 로드될 때까지 대기
+                time.sleep(2)
+                print(f"[사람인 상세페이지] 페이지 제목: {driver.title}")
+                
+                # 회사명 추출 (사람인 구조) - 더 많은 선택자 시도
                 company_selectors = [
-                    "h1.company_name", "div.company_name", ".company_name",
-                    "h2.company_name", "span.company_name", "strong.company_name",
-                    ".company_info h1", ".company_info .company_name"
+                    "h1.company_name", 
+                    "div.company_name", 
+                    ".company_name",
+                    "h2.company_name", 
+                    "span.company_name", 
+                    "strong.company_name",
+                    ".company_info h1", 
+                    ".company_info .company_name",
+                    ".company_header h1",
+                    ".company_header .company_name",
+                    "h1[class*='company']",
+                    ".item_company h1",
+                    ".item_company .company_name",
+                    "div[class*='company_name']",
+                    # 페이지 제목에서 회사명 추출 시도
                 ]
                 for selector in company_selectors:
                     try:
                         elem = driver.find_element(By.CSS_SELECTOR, selector)
-                        if elem.text.strip():
-                            info["회사명"] = elem.text.strip()
+                        company_text = elem.text.strip()
+                        # 이상한 텍스트 필터링 (너무 짧거나 일반적인 문구 제외)
+                        if company_text and len(company_text) > 2 and not any(x in company_text for x in ['에 대해', '많은 사람', '궁금해', '검색', '사람인']):
+                            info["회사명"] = company_text
+                            print(f"[사람인] 회사명 추출 성공 (선택자: {selector}): {company_text}")
                             break
+                    except:
+                        pass
+                
+                # 선택자로 못 찾았으면 페이지 제목에서 추출 시도
+                if not info["회사명"]:
+                    try:
+                        page_title = driver.title.strip()
+                        # 제목에서 회사명 추출 (예: "회사명 | 사람인" 형식)
+                        if "|" in page_title:
+                            company_name = page_title.split("|")[0].strip()
+                            if company_name and len(company_name) > 2:
+                                info["회사명"] = company_name
+                                print(f"[사람인] 회사명 추출 성공 (제목): {company_name}")
                     except:
                         pass
                 
                 # 홈페이지 URL 추출 (기업정보 섹션에서)
                 homepage_url = None
+                print(f"[사람인 상세페이지] 홈페이지 URL 추출 시작...")
                 
                 # 방법 1: dt/dd 구조에서 찾기 (가장 정확)
                 try:
                     # "홈페이지" 텍스트가 있는 dt 요소 찾기
                     dt_elements = driver.find_elements(By.XPATH, "//dt[contains(text(), '홈페이지')]")
+                    print(f"[사람인 상세페이지] 방법1: dt 요소 {len(dt_elements)}개 발견")
                     for dt in dt_elements:
                         try:
                             # 다음 형제 dd 요소 찾기
@@ -493,6 +908,7 @@ def extract_company_info(driver, url):
                             link = dd.find_element(By.CSS_SELECTOR, "a[href^='http']")
                             homepage_url = link.get_attribute("href")
                             if homepage_url:
+                                print(f"[사람인 상세페이지] 방법1 성공: {homepage_url}")
                                 break
                         except:
                             try:
@@ -501,10 +917,12 @@ def extract_company_info(driver, url):
                                 dd_text = dd.text.strip()
                                 if dd_text.startswith("http"):
                                     homepage_url = dd_text.split()[0]  # 첫 번째 단어가 URL일 가능성
+                                    print(f"[사람인 상세페이지] 방법1 성공 (텍스트): {homepage_url}")
                                     break
                             except:
                                 pass
-                except:
+                except Exception as e:
+                    print(f"[사람인 상세페이지] 방법1 오류: {e}")
                     pass
                 
                 # 방법 2: 페이지 텍스트에서 정규식으로 찾기
@@ -610,9 +1028,12 @@ def extract_company_info(driver, url):
                 
                 # 홈페이지가 있으면 홈페이지로 이동해서 footer에서 이메일 추출
                 if homepage_url:
+                    print(f"[사람인 상세페이지] 홈페이지 URL 발견: {homepage_url}")
                     try:
+                        print(f"[사람인 상세페이지] 홈페이지로 이동 중: {homepage_url}")
                         driver.get(homepage_url)
                         time.sleep(2)
+                        print(f"[사람인 상세페이지] 홈페이지 접근 완료: {driver.title}")
                         
                         # 페이지 하단으로 스크롤하여 footer 로드
                         try:
@@ -633,6 +1054,7 @@ def extract_company_info(driver, url):
                             pass
                         
                         # footer에서 이메일 추출 (더 정확하게)
+                        print(f"[사람인 상세페이지] footer에서 이메일 추출 시작...")
                         footer_selectors = [
                             "footer",
                             "#footer",
@@ -664,6 +1086,8 @@ def extract_company_info(driver, url):
                                         pass
                             except:
                                 pass
+                        
+                        print(f"[사람인 상세페이지] footer 요소 {len(footer_elements)}개 발견")
                         
                         # 중복 제거 (같은 요소는 한 번만)
                         seen_elements = set()
@@ -721,6 +1145,9 @@ def extract_company_info(driver, url):
                                 # 중복 제거하고 최대 3개
                                 unique_emails = list(set(real_emails))[:3]
                                 info["이메일"] = ", ".join(unique_emails)
+                                print(f"[사람인 상세페이지] 이메일 발견: {info['이메일']}")
+                            else:
+                                print(f"[사람인 상세페이지] footer에서 이메일을 찾지 못함")
                         
                         # footer에서 mailto 링크 찾기 (더 정확하게)
                         if not info["이메일"]:
@@ -829,69 +1256,150 @@ def extract_company_info(driver, url):
                             except:
                                 pass
                         
-                        # 여전히 이메일을 못 찾았으면 페이지 하단 부분에서 찾기
+                        # 여전히 이메일을 못 찾았으면 전체 페이지에서 찾기 (더 강화)
                         if not info["이메일"]:
                             try:
-                                # 페이지 하단 부분만 스크롤해서 확인
-                                page_height = driver.execute_script("return document.body.scrollHeight")
-                                driver.execute_script(f"window.scrollTo(0, {page_height * 0.7});")
-                                time.sleep(1)
-                                
-                                # 하단 부분의 모든 텍스트 요소 찾기
-                                bottom_elements = driver.find_elements(By.CSS_SELECTOR, "div, section, footer, p, span, td, li")
-                                bottom_text = ""
-                                bottom_html = ""
-                                
-                                for elem in bottom_elements[-50:]:  # 마지막 50개 요소만 확인
-                                    try:
-                                        elem_text = elem.text
-                                        elem_html = elem.get_attribute("innerHTML") or ""
-                                        if elem_text:
-                                            bottom_text += "\n" + elem_text
-                                        if elem_html:
-                                            bottom_html += "\n" + elem_html
-                                    except:
-                                        pass
+                                print(f"[사람인 상세페이지] 전체 페이지에서 이메일 추출 시도...")
+                                # 페이지 전체 HTML과 텍스트 모두 검사
+                                body_elem = driver.find_element(By.TAG_NAME, "body")
+                                body_text = body_elem.text
+                                body_html = body_elem.get_attribute("innerHTML") or body_elem.get_attribute("outerHTML") or ""
                                 
                                 email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
                                 found_emails = []
                                 
-                                if bottom_html:
-                                    found_emails.extend(re.findall(email_pattern, bottom_html))
-                                if bottom_text:
-                                    found_emails.extend(re.findall(email_pattern, bottom_text))
+                                # HTML에서 먼저 찾기 (더 정확함)
+                                if body_html:
+                                    found_emails.extend(re.findall(email_pattern, body_html))
                                 
+                                # 텍스트에서도 찾기
+                                if body_text:
+                                    found_emails.extend(re.findall(email_pattern, body_text))
+                                
+                                # 불필요한 이메일 제외
                                 real_emails = []
                                 for email in found_emails:
                                     email_lower = email.lower()
+                                    # 이미지 파일명 제외
                                     if email_lower.endswith(('.png', '.jpg', '.gif', '.svg', '.jpeg', '.webp', '.ico', '.css', '.js')):
                                         continue
+                                    # noreply 등 제외
                                     if any(x in email_lower for x in ['noreply', 'no-reply', 'donotreply', 'example.com', 'test.com', 'sample.com', 'placeholder']):
                                         continue
                                     real_emails.append(email)
                                 
                                 if real_emails:
+                                    # 중복 제거하고 최대 3개
                                     unique_emails = list(set(real_emails))[:3]
                                     info["이메일"] = ", ".join(unique_emails)
-                            except:
+                                    print(f"[사람인 상세페이지] 전체 페이지에서 이메일 발견: {info['이메일']}")
+                            except Exception as e:
+                                print(f"[사람인 상세페이지] 전체 페이지 이메일 추출 오류: {e}")
                                 pass
                         
                         # URL을 홈페이지로 업데이트
                         info["URL"] = homepage_url
-                    except:
+                        
+                        # 홈페이지에서 회사 정보 추출 강화
+                        print(f"[사람인 상세페이지] 홈페이지에서 회사 정보 추출 시작...")
+                        try:
+                            body_elem = driver.find_element(By.TAG_NAME, "body")
+                            body_text = body_elem.text
+                            body_html = body_elem.get_attribute("innerHTML") or ""
+                            
+                            # 회사명 추출 (홈페이지에서)
+                            if not info["회사명"]:
+                                company_selectors_homepage = [
+                                    "h1", "h2", ".company_name", ".corp_name", 
+                                    ".site-title", ".logo", "[class*='company']",
+                                    "[class*='corp']", ".brand", ".site-name"
+                                ]
+                                for selector in company_selectors_homepage:
+                                    try:
+                                        elems = driver.find_elements(By.CSS_SELECTOR, selector)
+                                        for elem in elems:
+                                            text = elem.text.strip()
+                                            if text and len(text) > 2 and len(text) < 50:
+                                                # 이상한 텍스트 필터링
+                                                if not any(x in text for x in ['에 대해', '많은 사람', '궁금해', '검색', '사람인', 'HOME', 'MENU']):
+                                                    info["회사명"] = text
+                                                    print(f"[사람인 상세페이지] 회사명 추출 (홈페이지): {text}")
+                                                    break
+                                        if info["회사명"]:
+                                            break
+                                    except:
+                                        pass
+                                
+                                # 정규식으로 회사명 추출
+                                if not info["회사명"]:
+                                    company_patterns = [
+                                        r'(?:회사명|상호|법인명|업체명|기업명)\s*[:\s]\s*([^\n\r,|(]{2,30})',
+                                        r'\(주\)\s*([가-힣a-zA-Z0-9\s]{2,20})',
+                                        r'([가-힣]{2,15}(?:주식회사|㈜|\(주\)))',
+                                        r'((?:주식회사|㈜)\s*[가-힣a-zA-Z0-9]{2,15})',
+                                    ]
+                                    for pattern in company_patterns:
+                                        match = re.search(pattern, body_text)
+                                        if match:
+                                            company_name = match.group(1).strip()
+                                            if len(company_name) > 2:
+                                                info["회사명"] = company_name
+                                                print(f"[사람인 상세페이지] 회사명 추출 (정규식): {company_name}")
+                                                break
+                            
+                            # 대표자명 추출 (홈페이지에서)
+                            if not info["대표자명"]:
+                                ceo_patterns = [
+                                    r'(?:대표자?|대표이사|CEO|대표자명)\s*[:\s]\s*([가-힣]{2,5})',
+                                    r'대표이사\s*([가-힣]{2,5})',
+                                    r'CEO\s*[:\s]\s*([가-힣]{2,5})',
+                                ]
+                                for pattern in ceo_patterns:
+                                    match = re.search(pattern, body_text, re.IGNORECASE)
+                                    if match:
+                                        ceo_name = match.group(1).strip()
+                                        if len(ceo_name) >= 2:
+                                            info["대표자명"] = ceo_name
+                                            print(f"[사람인 상세페이지] 대표자명 추출: {ceo_name}")
+                                            break
+                            
+                            # 회사 주소 추출 (홈페이지에서)
+                            if not info["회사주소"]:
+                                address_patterns = [
+                                    r'(?:주소|소재지|사업장\s*소재지|본사)\s*[:\s]\s*([^\n\r]{10,80})',
+                                    r'((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)[^\n\r]{10,70})',
+                                ]
+                                for pattern in address_patterns:
+                                    match = re.search(pattern, body_text)
+                                    if match:
+                                        addr = match.group(1).strip()[:80]
+                                        info["회사주소"] = addr
+                                        print(f"[사람인 상세페이지] 회사주소 추출: {addr}")
+                                        break
+                        except Exception as e:
+                            print(f"[사람인 상세페이지] 회사 정보 추출 오류: {e}")
+                            pass
+                    except Exception as e:
+                        print(f"[사람인 상세페이지] 홈페이지 처리 오류: {e}")
+                        import traceback
+                        print(traceback.format_exc())
                         pass
                 else:
                     # 홈페이지를 못 찾았으면 사람인 페이지에서 직접 이메일 추출 시도
+                    print(f"[사람인 상세페이지] 홈페이지 URL을 찾지 못함 - 사람인 페이지에서 직접 이메일 추출 시도")
                     try:
                         email_elements = driver.find_elements(By.CSS_SELECTOR, "a[href^='mailto:'], .email, .contact_email")
+                        print(f"[사람인 상세페이지] 사람인 페이지에서 이메일 요소 {len(email_elements)}개 발견")
                         for elem in email_elements:
                             email_text = elem.get_attribute("href") or elem.text
                             if "@" in email_text:
                                 email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', email_text)
                                 if email_match:
                                     info["이메일"] = email_match.group(0)
+                                    print(f"[사람인 상세페이지] 사람인 페이지에서 이메일 발견: {info['이메일']}")
                                     break
-                    except:
+                    except Exception as e:
+                        print(f"[사람인 상세페이지] 사람인 페이지에서 이메일 추출 오류: {e}")
                         pass
             except:
                 pass
@@ -1034,20 +1542,21 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
                 break
                 
             if keyword.strip():
-                # 사람인 검색 (1페이지만 - 디버깅용)
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 중... ({i+1}/{len(keywords)}) [1페이지만]"
-                saramin_urls = get_saramin_company_links(driver, keyword.strip(), pages=1, max_urls=0)
-                all_urls.extend(saramin_urls)
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 완료: {len(saramin_urls)}개 링크 발견"
+                # 네이버 검색 (파워링크 포함)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 중... ({i+1}/{len(keywords)}) [파워링크 포함]"
+                naver_urls = get_naver_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
+                all_urls.extend(naver_urls)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 완료: {len(naver_urls)}개 링크 발견"
                 
                 # 정지 버튼 체크
                 if user_sessions[session_id]["stop_flag"]:
                     break
                 
-                # # 네이버 검색 (주석처리 - 디버깅용)
-                # user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 중... ({i+1}/{len(keywords)})"
-                # naver_urls = get_naver_links(driver, keyword.strip(), pages=search_pages, max_urls=0)
-                # all_urls.extend(naver_urls)
+                # 사람인 검색 (테스트용 1페이지만)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 중... ({i+1}/{len(keywords)}) [1페이지]"
+                saramin_urls = get_saramin_company_links(driver, keyword.strip(), pages=1, max_urls=0)
+                all_urls.extend(saramin_urls)
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 사람인 검색 완료: {len(saramin_urls)}개 링크 발견"
                 # 
                 # # 정지 버튼 체크
                 # if user_sessions[session_id]["stop_flag"]:
@@ -1078,6 +1587,28 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
         
         target_urls = list(set(all_urls))
         total_sites = len(target_urls)
+        print(f"[디버깅] 총 수집된 URL: {len(all_urls)}개, 중복 제거 후: {total_sites}개")
+        
+        # 링크가 없으면 에러 메시지 출력하고 종료
+        if total_sites == 0:
+            error_msg = "회사 상세 페이지 링크를 찾지 못했습니다. 사람인 검색 결과 페이지 구조가 변경되었을 수 있습니다."
+            print(f"[오류] {error_msg}")
+            user_sessions[session_id]["status"]["progress"] = error_msg
+            user_sessions[session_id]["status"]["completed"] = True
+            user_sessions[session_id]["status"]["running"] = False
+            try:
+                driver.quit()
+            except:
+                pass
+            return
+        
+        # 수집된 링크 목록 출력
+        print(f"[디버깅] 수집된 링크 목록 (총 {len(target_urls)}개):")
+        for idx, url in enumerate(target_urls[:20]):  # 최대 20개까지 출력
+            print(f"  {idx+1}. {url}")
+        if len(target_urls) > 20:
+            print(f"  ... 외 {len(target_urls) - 20}개")
+        
         user_sessions[session_id]["status"]["progress"] = f"총 {total_sites}개 사이트 발견. 정보 수집 중... (목표: {max_count if max_count > 0 else '무제한'}개)"
         
         # 중복 체크용 세트
@@ -1085,70 +1616,97 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
         seen_companies = set()
         seen_emails = set()
         
+        duplicate_count = 0
+        
         # 회사 정보 수집 - 목표 개수에 도달할 때까지 계속
         for i, url in enumerate(target_urls):
+            print(f"[디버깅] ({i+1}/{total_sites}) 상세 페이지 접근 시도: {url}")
             # 정지 버튼 체크
             if user_sessions[session_id]["stop_flag"]:
                 user_sessions[session_id]["status"]["progress"] = f"정지됨! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
                 break
             
-            # 목표 개수 체크 (이메일이 있는 회사만 카운트)
-            collected = len(user_sessions[session_id]["results"])
-            if max_count > 0 and collected >= max_count:
-                user_sessions[session_id]["status"]["progress"] = f"완료! {max_count}개 도달 (목표 달성)"
-                break
-            
             target_text = f"/{max_count}" if max_count > 0 else ""
-            user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개"
+            current_count = len(user_sessions[session_id]["results"])
+            user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {current_count}{target_text}개"
             
-            info = extract_company_info(driver, url)
+            print(f"[디버깅] ({i+1}/{total_sites}) 처리 중: {url}")
+            try:
+                info = extract_company_info(driver, url)
+                print(f"[디버깅] 추출된 정보 - 회사명: '{info['회사명']}', 이메일: '{info['이메일']}'")
+            except Exception as e:
+                print(f"[오류] 상세 페이지 처리 중 오류 발생: {e}")
+                import traceback
+                print(traceback.format_exc())
+                # 오류가 발생해도 기본 정보는 저장
+                info = {
+                    "URL": url,
+                    "사이트명": "",
+                    "회사명": "",
+                    "대표자명": "",
+                    "회사주소": "",
+                    "이메일": ""
+                }
+                info["URL"] = url
             
-            # 디버깅: 이메일이 없는 경우 상태 업데이트
+            # 이메일이 없어도 모든 사이트를 결과에 추가 (확인용)
+            # 중복 체크: 이메일 중복만 체크 (URL과 회사명은 완전히 제거 - 모든 방문 사이트 표시)
+            url_base = url.split('?')[0].rstrip('/')  # 쿼리 파라미터 제거
+            company_name = info["회사명"].strip() if info["회사명"] else ""
+            email_key = info["이메일"].lower().strip() if info["이메일"] else ""
+            
+            is_duplicate = False
+            duplicate_reason = ""
+            
+            # 이메일이 있는 경우에만 이메일 중복 체크 (가장 중요)
+            # 같은 이메일이면 중복으로 처리
+            if email_key and email_key in seen_emails:
+                is_duplicate = True
+                duplicate_reason = "이메일 중복"
+            
+            # URL 중복 체크 완전히 제거 - 모든 방문한 사이트를 표시
+            # 회사명 중복 체크도 완전히 제거 - 모든 방문한 사이트를 표시
+            
+            if not is_duplicate:
+                seen_urls.add(url_base)
+                if company_name:
+                    seen_companies.add(company_name)
+                if email_key:
+                    seen_emails.add(email_key)
+                
+                # 이메일이 없어도 모든 사이트 추가
+                user_sessions[session_id]["results"].append(info)
+                print(f"[디버깅] 추가됨 (총 {len(user_sessions[session_id]['results'])}개) - URL: {url_base[:80]}, 회사명: {company_name[:30]}, 이메일: {email_key[:30]}")
+            else:
+                duplicate_count += 1
+                print(f"[디버깅] 중복 제외됨: {duplicate_reason} (총 중복: {duplicate_count}개) - URL: {url_base[:80]}")
+            
+            # 상태 업데이트 (중복 여부와 관계없이 항상 실행)
             if not info["이메일"]:
                 if "saramin.co.kr" in url.lower() and "/zf_user/company" in url.lower():
                     if info["URL"] == url:
                         # 홈페이지를 못 찾은 경우
-                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개 [홈페이지 미발견]"
+                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {len(user_sessions[session_id]['results'])}{target_text}개 [홈페이지 미발견]"
                     else:
                         # 홈페이지로 이동했지만 이메일을 못 찾은 경우
-                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개 [이메일 미발견]"
+                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {len(user_sessions[session_id]['results'])}{target_text}개 [이메일 미발견]"
+                else:
+                    user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {len(user_sessions[session_id]['results'])}{target_text}개"
             
-            if info["이메일"]:
-                # 중복 체크: URL, 회사명, 이메일 기준
-                url_base = url.split('?')[0].rstrip('/')  # 쿼리 파라미터 제거
-                company_name = info["회사명"].strip() if info["회사명"] else ""
-                email_key = info["이메일"].lower().strip()
-                
-                is_duplicate = False
-                
-                # URL 중복 체크
-                if url_base in seen_urls:
-                    is_duplicate = True
-                
-                # 회사명 중복 체크 (회사명이 있는 경우만)
-                if company_name and company_name in seen_companies:
-                    is_duplicate = True
-                
-                # 이메일 중복 체크
-                if email_key in seen_emails:
-                    is_duplicate = True
-                
-                if not is_duplicate:
-                    seen_urls.add(url_base)
-                    if company_name:
-                        seen_companies.add(company_name)
-                    seen_emails.add(email_key)
-                    user_sessions[session_id]["results"].append(info)
-                    
-                    # 목표 개수에 도달했는지 다시 확인 (추가 직후)
-                    collected = len(user_sessions[session_id]["results"])
-                    if max_count > 0 and collected >= max_count:
-                        user_sessions[session_id]["status"]["progress"] = f"완료! {max_count}개 도달 (목표 달성)"
-                        break
+            # 목표 개수 체크는 이메일이 있는 경우만 (중복 여부와 관계없이 항상 체크)
+            if max_count > 0:
+                # 이메일이 있는 항목만 카운트
+                email_count = sum(1 for r in user_sessions[session_id]["results"] if r.get("이메일") and r.get("이메일") != "-")
+                if email_count >= max_count:
+                    user_sessions[session_id]["status"]["progress"] = f"완료! 이메일 {max_count}개 도달 (목표 달성, 총 {len(user_sessions[session_id]['results'])}개 사이트 수집)"
+                    print(f"[디버깅] 목표 개수 도달! 이메일 {email_count}개 >= 목표 {max_count}개")
+                    break
         
         if not user_sessions[session_id]["stop_flag"]:
             collected_count = len(user_sessions[session_id]['results'])
-            user_sessions[session_id]["status"]["progress"] = f"완료! {collected_count}개 회사 정보 수집"
+            email_collected_count = sum(1 for r in user_sessions[session_id]["results"] if r.get("이메일"))
+            user_sessions[session_id]["status"]["progress"] = f"완료! 총 {collected_count}개 사이트 정보 수집 (이메일 {email_collected_count}개, 중복 제외 {duplicate_count}개)"
+            print(f"[디버깅] 최종 결과: 총 {collected_count}개 수집, 이메일 {email_collected_count}개, 중복 제외 {duplicate_count}개")
         
         user_sessions[session_id]["status"]["completed"] = True
         
@@ -1179,22 +1737,45 @@ def index():
 def crawl():
     global user_sessions
     
-    # 세션 ID 확인
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
-    session_id = session['session_id']
-    
-    # 이 사용자가 이미 크롤링 중인지 확인
-    if session_id in user_sessions and user_sessions[session_id]["status"]["running"]:
-        return jsonify({"error": "이미 크롤링이 진행 중입니다."}), 400
-    
-    data = request.json
-    keywords = data.get('keywords', [])
-    max_count = data.get('maxCount', 0)  # 0이면 제한 없음
-    search_pages = data.get('searchPages', 10)  # 기본 10페이지로 고정
-    
-    if not keywords or all(k.strip() == '' for k in keywords):
-        return jsonify({"error": "검색어를 입력해주세요."}), 400
+    try:
+        # 세션 ID 확인
+        if 'session_id' not in session:
+            session['session_id'] = str(uuid.uuid4())
+        session_id = session['session_id']
+        
+        # 이 사용자가 이미 크롤링 중인지 확인
+        if session_id in user_sessions and user_sessions[session_id]["status"]["running"]:
+            return jsonify({"error": "이미 크롤링이 진행 중입니다."}), 400
+        
+        # JSON 데이터 파싱
+        if not request.is_json:
+            return jsonify({"error": "JSON 형식의 데이터가 필요합니다."}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "요청 데이터가 없습니다."}), 400
+        
+        keywords = data.get('keywords', [])
+        max_count = data.get('maxCount', 0)  # 0이면 제한 없음
+        search_pages = data.get('searchPages', 10)  # 기본 10페이지로 고정
+        
+        # keywords가 리스트가 아닌 경우 처리
+        if not isinstance(keywords, list):
+            keywords = [keywords] if keywords else []
+        
+        if not keywords or all(k.strip() == '' for k in keywords):
+            return jsonify({"error": "검색어를 입력해주세요."}), 400
+        
+        # 백그라운드에서 크롤링 실행
+        thread = threading.Thread(target=run_crawling, args=(keywords, session_id, max_count, search_pages))
+        thread.start()
+        
+        return jsonify({"message": "크롤링을 시작합니다."})
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        print(f"Crawl endpoint error: {traceback.format_exc()}")
+        return jsonify({"error": f"크롤링 시작 중 오류가 발생했습니다: {error_msg}"}), 500
     
     # 백그라운드에서 크롤링 실행
     thread = threading.Thread(target=run_crawling, args=(keywords, session_id, max_count, search_pages))

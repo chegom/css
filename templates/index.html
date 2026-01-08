@@ -275,6 +275,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            color: var(--text-primary);
         }
 
         td.address {
@@ -440,7 +441,16 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ keywords: keywords, maxCount: maxCount, searchPages: 10 })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw new Error(err.error || `HTTP error! status: ${response.status}`);
+                    }).catch(() => {
+                        throw new Error(`서버 오류: ${response.status} ${response.statusText}`);
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     alert(data.error);
@@ -513,19 +523,41 @@
                 const tbody = document.getElementById('resultsBody');
                 tbody.innerHTML = '';
 
-                data.forEach(item => {
+                // 이메일이 있는 항목과 없는 항목 구분
+                const withEmail = data.filter(item => item.이메일 && item.이메일 !== '-');
+                const withoutEmail = data.filter(item => !item.이메일 || item.이메일 === '-');
+
+                // 이메일이 있는 항목 먼저 표시
+                withEmail.forEach(item => {
                     const row = document.createElement('tr');
+                    row.style.backgroundColor = '#1e3a5f'; // 이메일 있는 항목 강조 (어두운 배경)
                     row.innerHTML = `
-                        <td>${item.회사명 || '-'}</td>
-                        <td class="email">${item.이메일 || '-'}</td>
-                        <td>${item.대표자명 || '-'}</td>
-                        <td class="address">${item.회사주소 || '-'}</td>
-                        <td><a href="${item.URL}" target="_blank">바로가기</a></td>
+                        <td style="color: #f1f5f9;"><strong>${item.회사명 || '-'}</strong></td>
+                        <td class="email" style="color: #10b981; font-weight: bold;">${item.이메일 || '-'}</td>
+                        <td style="color: #f1f5f9;">${item.대표자명 || '-'}</td>
+                        <td class="address" style="color: #f1f5f9;">${item.회사주소 || '-'}</td>
+                        <td><a href="${item.URL || '#'}" target="_blank" style="color: #60a5fa;">${item.URL ? (item.URL.length > 50 ? item.URL.substring(0, 50) + '...' : item.URL) : '-'}</a></td>
                     `;
                     tbody.appendChild(row);
                 });
 
-                document.getElementById('resultsCount').textContent = `${data.length}개 회사`;
+                // 이메일이 없는 항목 표시
+                withoutEmail.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td style="color: #f1f5f9;">${item.회사명 || '-'}</td>
+                        <td class="email" style="color: #ef4444;">이메일 없음</td>
+                        <td style="color: #f1f5f9;">${item.대표자명 || '-'}</td>
+                        <td class="address" style="color: #f1f5f9;">${item.회사주소 || '-'}</td>
+                        <td><a href="${item.URL || '#'}" target="_blank" style="color: #60a5fa;">${item.URL ? (item.URL.length > 50 ? item.URL.substring(0, 50) + '...' : item.URL) : '-'}</a></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                // 통계 표시
+                const emailCount = withEmail.length;
+                const totalCount = data.length;
+                document.getElementById('resultsCount').textContent = `${totalCount}개 회사 (이메일 ${emailCount}개)`;
                 document.getElementById('statusSection').classList.remove('active');
                 document.getElementById('resultsSection').classList.add('active');
                 document.getElementById('startBtn').disabled = false;
