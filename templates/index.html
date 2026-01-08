@@ -447,12 +447,19 @@
                     resetUI();
                     return;
                 }
-                // 상태 체크 시작
-                checkInterval = setInterval(checkStatus, 1000);
+                // 상태 체크 시작 (2초마다 체크)
+                checkInterval = setInterval(checkStatus, 2000);
             })
             .catch(error => {
-                alert('오류가 발생했습니다: ' + error);
-                resetUI();
+                console.error('Crawl start error:', error);
+                if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+                    alert('서버 응답 시간이 초과되었습니다. 크롤링은 백그라운드에서 진행 중일 수 있습니다. 잠시 후 새로고침해주세요.');
+                    // 상태 체크는 계속 시도
+                    checkInterval = setInterval(checkStatus, 3000);
+                } else {
+                    alert('오류가 발생했습니다: ' + error.message);
+                    resetUI();
+                }
             });
         }
 
@@ -472,8 +479,17 @@
         }
 
         function checkStatus() {
-            fetch('/status')
-            .then(response => response.json())
+            fetch('/status', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(10000) // 10초 타임아웃
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 document.getElementById('statusText').textContent = data.progress;
 
@@ -481,6 +497,12 @@
                     clearInterval(checkInterval);
                     loadResults();
                 }
+            })
+            .catch(error => {
+                // 네트워크 오류나 타임아웃 발생 시
+                console.error('Status check error:', error);
+                // 상태 체크를 계속 시도하되, 오류 메시지 표시
+                document.getElementById('statusText').textContent = '서버 응답 대기 중... (연결 확인 중)';
             });
         }
 
@@ -509,6 +531,12 @@
                 document.getElementById('startBtn').disabled = false;
                 document.getElementById('stopBtn').disabled = true;
                 document.getElementById('downloadBtn').disabled = data.length === 0;
+            })
+            .catch(error => {
+                console.error('Load results error:', error);
+                document.getElementById('statusText').textContent = '결과 로드 실패. 잠시 후 다시 시도해주세요.';
+                // 5초 후 다시 시도
+                setTimeout(loadResults, 5000);
             });
         }
 

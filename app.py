@@ -238,9 +238,24 @@ def get_saramin_company_links(driver, keyword, pages=10, max_urls=0):
             page_links_count = len(links)
             
             # 사람인 검색 결과에서 회사 상세 페이지 링크 찾기
-            # 여러 방법으로 시도
+            # 모든 방법을 병렬로 시도하여 최대한 많이 수집
             try:
-                # 방법 1: "기업정보" 텍스트가 있는 링크 찾기 (가장 정확)
+                # 방법 1: 모든 회사 상세 페이지 링크 찾기 (가장 확실한 방법 - 먼저 실행)
+                all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
+                for link in all_company_links:
+                    try:
+                        href = link.get_attribute("href")
+                        if href:
+                            if href.startswith("/"):
+                                href = "https://www.saramin.co.kr" + href
+                            # 쿼리 파라미터 제거하여 중복 방지
+                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                            if "/zf_user/company" in href_clean and href_clean not in links:
+                                links.append(href_clean)
+                    except:
+                        pass
+                
+                # 방법 2: "기업정보" 텍스트가 있는 링크 찾기
                 company_info_links = driver.find_elements(By.XPATH, "//a[contains(text(), '기업정보')]")
                 for link in company_info_links:
                     try:
@@ -248,41 +263,21 @@ def get_saramin_company_links(driver, keyword, pages=10, max_urls=0):
                         if href:
                             if href.startswith("/"):
                                 href = "https://www.saramin.co.kr" + href
-                            if "/zf_user/company" in href and href not in links:
-                                links.append(href)
+                            href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                            if "/zf_user/company" in href_clean and href_clean not in links:
+                                links.append(href_clean)
                     except:
                         pass
                 
-                # 방법 1-2: "기업정보" 버튼 클래스나 ID로 찾기
-                if not links:
-                    try:
-                        company_info_btns = driver.find_elements(By.CSS_SELECTOR, ".btn_company_info, .company_info_btn, button.company_info, a.company_info")
-                        for btn in company_info_btns:
-                            try:
-                                href = btn.get_attribute("href") or btn.get_attribute("onclick")
-                                if href:
-                                    # onclick에서 URL 추출
-                                    if "onclick" in str(href).lower():
-                                        import re as re_onclick
-                                        onclick_match = re_onclick.search(r'/zf_user/company[^\'\"\s\)]+', str(href))
-                                        if onclick_match:
-                                            href = "https://www.saramin.co.kr" + onclick_match.group(0)
-                                    elif href.startswith("/"):
-                                        href = "https://www.saramin.co.kr" + href
-                                    if "/zf_user/company" in href and href not in links:
-                                        links.append(href)
-                            except:
-                                pass
-                    except:
-                        pass
-                
-                # 방법 2: 기업정보 버튼/링크 찾기 (다양한 선택자)
+                # 방법 3: 기업정보 버튼/링크 찾기 (다양한 선택자)
                 company_info_selectors = [
                     "a[href*='/zf_user/company']",
                     "a.company_info",
                     ".company_info a",
                     "a[title*='기업정보']",
                     "a[aria-label*='기업정보']",
+                    ".btn_company_info",
+                    ".company_info_btn",
                 ]
                 for selector in company_info_selectors:
                     try:
@@ -292,43 +287,32 @@ def get_saramin_company_links(driver, keyword, pages=10, max_urls=0):
                             if href:
                                 if href.startswith("/"):
                                     href = "https://www.saramin.co.kr" + href
-                                if "/zf_user/company" in href and href not in links:
-                                    links.append(href)
+                                href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                                if "/zf_user/company" in href_clean and href_clean not in links:
+                                    links.append(href_clean)
                     except:
                         pass
                 
-                # 방법 3: 회사명이 있는 영역에서 회사 상세 페이지 링크 찾기
+                # 방법 4: 각 채용 공고 항목에서 회사 정보 영역 찾기
                 try:
-                    # 각 채용 공고 항목에서 회사 정보 영역 찾기
-                    job_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .recruit_item, .job_item")
+                    job_items = driver.find_elements(By.CSS_SELECTOR, ".item_recruit, .recruit_item, .job_item, .list_item, [class*='item'], [class*='recruit']")
                     for item in job_items:
                         try:
                             # 기업정보 링크 찾기
-                            company_link = item.find_element(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-                            href = company_link.get_attribute("href")
-                            if href:
-                                if href.startswith("/"):
-                                    href = "https://www.saramin.co.kr" + href
-                                if href not in links:
-                                    links.append(href)
+                            company_links = item.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
+                            for company_link in company_links:
+                                href = company_link.get_attribute("href")
+                                if href:
+                                    if href.startswith("/"):
+                                        href = "https://www.saramin.co.kr" + href
+                                    href_clean = href.split("?")[0].split("#")[0].rstrip("/")
+                                    if href_clean not in links:
+                                        links.append(href_clean)
                         except:
                             pass
                 except:
                     pass
-                
-                # 방법 4: 모든 회사 상세 페이지 링크 찾기 (최후의 수단)
-                all_company_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/zf_user/company']")
-                for link in all_company_links:
-                    try:
-                        href = link.get_attribute("href")
-                        if href:
-                            if href.startswith("/"):
-                                href = "https://www.saramin.co.kr" + href
-                            if href not in links:
-                                links.append(href)
-                    except:
-                        pass
-            except:
+            except Exception as e:
                 pass
             
             # 목표 개수에 도달했으면 중단
@@ -1119,7 +1103,7 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
         
         target_urls = list(set(all_urls))
         total_sites = len(target_urls)
-        user_sessions[session_id]["status"]["progress"] = f"총 {total_sites}개 사이트 발견. 정보 수집 중..."
+        user_sessions[session_id]["status"]["progress"] = f"총 {total_sites}개 사이트 발견. 정보 수집 중... (목표: {max_count if max_count > 0 else '무제한'}개)"
         
         # 중복 체크용 세트
         seen_urls = set()
@@ -1143,6 +1127,16 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
             user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개"
             
             info = extract_company_info(driver, url)
+            
+            # 디버깅: 이메일이 없는 경우 상태 업데이트
+            if not info["이메일"]:
+                if "saramin.co.kr" in url.lower() and "/zf_user/company" in url.lower():
+                    if info["URL"] == url:
+                        # 홈페이지를 못 찾은 경우
+                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개 [홈페이지 미발견]"
+                    else:
+                        # 홈페이지로 이동했지만 이메일을 못 찾은 경우
+                        user_sessions[session_id]["status"]["progress"] = f"정보 수집 중... ({i+1}/{total_sites}) - 수집: {collected}{target_text}개 [이메일 미발견]"
             
             if info["이메일"]:
                 # 중복 체크: URL, 회사명, 이메일 기준
@@ -1252,33 +1246,44 @@ def stop():
 
 @app.route('/status')
 def status():
-    session_id = session.get('session_id')
-    
-    if not session_id or session_id not in user_sessions:
+    try:
+        session_id = session.get('session_id')
+        
+        if not session_id or session_id not in user_sessions:
+            return jsonify({
+                "running": False,
+                "progress": "",
+                "completed": False,
+                "count": 0
+            })
+        
+        user_data = user_sessions[session_id]
+        return jsonify({
+            "running": user_data["status"]["running"],
+            "progress": user_data["status"]["progress"],
+            "completed": user_data["status"]["completed"],
+            "count": len(user_data["results"])
+        })
+    except Exception as e:
         return jsonify({
             "running": False,
-            "progress": "",
+            "progress": f"오류: {str(e)[:50]}",
             "completed": False,
             "count": 0
-        })
-    
-    user_data = user_sessions[session_id]
-    return jsonify({
-        "running": user_data["status"]["running"],
-        "progress": user_data["status"]["progress"],
-        "completed": user_data["status"]["completed"],
-        "count": len(user_data["results"])
-    })
+        }), 500
 
 
 @app.route('/results')
 def results():
-    session_id = session.get('session_id')
-    
-    if not session_id or session_id not in user_sessions:
-        return jsonify([])
-    
-    return jsonify(user_sessions[session_id]["results"])
+    try:
+        session_id = session.get('session_id')
+        
+        if not session_id or session_id not in user_sessions:
+            return jsonify([])
+        
+        return jsonify(user_sessions[session_id]["results"])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/download')
@@ -1313,4 +1318,5 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('RAILWAY_ENVIRONMENT') is None
     app.run(host='0.0.0.0', port=port, debug=debug)
+
 
