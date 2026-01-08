@@ -75,20 +75,30 @@ def is_valid_company_url(url):
 
 def setup_driver():
     chrome_options = Options()
-    # headless 모드 비활성화 (브라우저 창이 보이도록)
-    # chrome_options.add_argument("--headless=new")
+    
+    # Railway/Docker 환경 감지
+    is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+    is_docker = os.path.exists('/usr/bin/google-chrome')
+    
+    # 서버 환경(Railway/Docker)에서는 headless 모드 필수
+    if is_railway or is_docker:
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--single-process")
+    # 로컬 환경에서는 headless 비활성화 (브라우저 창이 보이도록)
+    # else:
+    #     chrome_options.add_argument("--headless=new")  # 로컬에서도 headless 사용
+    
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-infobars")
-    # chrome_options.add_argument("--single-process")  # headless가 아니면 제거
     chrome_options.add_argument("--disable-setuid-sandbox")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     # Railway/Docker 환경
-    if os.path.exists('/usr/bin/google-chrome'):
+    if is_docker:
         chrome_options.binary_location = '/usr/bin/google-chrome'
     
     # webdriver-manager가 자동으로 ChromeDriver 설치
@@ -1047,7 +1057,13 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
         "stop_flag": False
     }
     
-    driver = setup_driver()
+    try:
+        driver = setup_driver()
+    except Exception as e:
+        user_sessions[session_id]["status"]["progress"] = f"드라이버 초기화 실패: {str(e)[:100]}"
+        user_sessions[session_id]["status"]["running"] = False
+        user_sessions[session_id]["status"]["completed"] = True
+        return
     
     try:
         # URL 수집 (네이버 + 다음 + 사람인 + 잡코리아 + 알바몬)
@@ -1162,12 +1178,23 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
                         break
         
         if not user_sessions[session_id]["stop_flag"]:
-            user_sessions[session_id]["status"]["progress"] = f"완료! {len(user_sessions[session_id]['results'])}개 회사 정보 수집"
+            collected_count = len(user_sessions[session_id]['results'])
+            user_sessions[session_id]["status"]["progress"] = f"완료! {collected_count}개 회사 정보 수집"
         
         user_sessions[session_id]["status"]["completed"] = True
         
+    except Exception as e:
+        # 에러 발생 시 상태 업데이트
+        error_msg = str(e)
+        user_sessions[session_id]["status"]["progress"] = f"오류 발생: {error_msg[:100]}"
+        user_sessions[session_id]["status"]["completed"] = True
+        import traceback
+        print(f"크롤링 오류: {traceback.format_exc()}")
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except:
+            pass
         user_sessions[session_id]["status"]["running"] = False
 
 
