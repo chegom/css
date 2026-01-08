@@ -97,6 +97,7 @@ def setup_driver():
 
 
 def get_naver_links(driver, keyword, pages=5):
+    """네이버 웹 검색에서 링크 수집"""
     links = []
     
     for page in range(1, pages + 1):
@@ -106,19 +107,9 @@ def get_naver_links(driver, keyword, pages=5):
         
         # 네이버 웹 검색 결과의 다양한 선택자
         selectors = [
-            # 웹 검색 결과 제목 링크
-            "a.link_tit",
-            "div.total_tit a",
-            "a.total_tit", 
-            "a.title_link",
-            # 웹문서 결과
-            "div.web_item a.link",
-            "div.lst_view a",
-            "div.api_txt_lines a",
-            # 통합검색 결과
-            "div.total_wrap a",
-            "li.bx a",
-            # 일반 외부 링크
+            "a.link_tit", "div.total_tit a", "a.total_tit", "a.title_link",
+            "div.web_item a.link", "div.lst_view a", "div.api_txt_lines a",
+            "div.total_wrap a", "li.bx a",
             "a[href^='http']:not([href*='naver.com']):not([href*='search.naver'])",
         ]
         
@@ -128,13 +119,50 @@ def get_naver_links(driver, keyword, pages=5):
                 for res in results:
                     href = res.get_attribute("href")
                     if href and href.startswith("http") and is_valid_company_url(href):
-                        # 네이버 내부 링크 한번 더 체크
                         if "naver.com" not in href and "search.naver" not in href:
                             links.append(href)
             except:
                 pass
         
-        # 페이지 스크롤해서 더 많은 결과 로드
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1)
+        except:
+            pass
+    
+    return list(set(links))
+
+
+def get_daum_links(driver, keyword, pages=5):
+    """다음 웹 검색에서 링크 수집"""
+    links = []
+    
+    for page in range(1, pages + 1):
+        url = f"https://search.daum.net/search?w=web&q={quote_plus(keyword)}&p={page}"
+        driver.get(url)
+        time.sleep(2)
+        
+        # 다음 웹 검색 결과 선택자
+        selectors = [
+            "a.f_link_b",           # 웹문서 제목 링크
+            "div.wrap_tit a",       # 제목 링크
+            "a.link_txt",           # 텍스트 링크
+            "div.c-tit a",          # 컨텐츠 제목
+            "div.c-item a",         # 아이템 링크
+            "a[href^='http']:not([href*='daum.net']):not([href*='kakao'])",
+        ]
+        
+        for selector in selectors:
+            try:
+                results = driver.find_elements(By.CSS_SELECTOR, selector)
+                for res in results:
+                    href = res.get_attribute("href")
+                    if href and href.startswith("http") and is_valid_company_url(href):
+                        if "daum.net" not in href and "kakao.com" not in href:
+                            links.append(href)
+            except:
+                pass
+        
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(1)
@@ -221,7 +249,7 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=5):
     driver = setup_driver()
     
     try:
-        # URL 수집
+        # URL 수집 (네이버 + 다음)
         all_urls = []
         for i, keyword in enumerate(keywords):
             # 정지 버튼 체크
@@ -229,9 +257,19 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=5):
                 break
                 
             if keyword.strip():
-                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 검색 중... ({i+1}/{len(keywords)})"
-                urls = get_naver_links(driver, keyword.strip(), pages=search_pages)
-                all_urls.extend(urls)
+                # 네이버 검색
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 네이버 검색 중... ({i+1}/{len(keywords)})"
+                naver_urls = get_naver_links(driver, keyword.strip(), pages=search_pages)
+                all_urls.extend(naver_urls)
+                
+                # 정지 버튼 체크
+                if user_sessions[session_id]["stop_flag"]:
+                    break
+                
+                # 다음 검색
+                user_sessions[session_id]["status"]["progress"] = f"'{keyword}' 다음 검색 중... ({i+1}/{len(keywords)})"
+                daum_urls = get_daum_links(driver, keyword.strip(), pages=search_pages)
+                all_urls.extend(daum_urls)
         
         target_urls = list(set(all_urls))
         total_sites = len(target_urls)
