@@ -80,13 +80,10 @@ def setup_driver():
     is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
     is_docker = os.path.exists('/usr/bin/google-chrome')
     
-    # 서버 환경(Railway/Docker)에서는 headless 모드 필수
-    if is_railway or is_docker:
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--single-process")
-    # 로컬 환경에서는 headless 비활성화 (브라우저 창이 보이도록)
-    # else:
-    #     chrome_options.add_argument("--headless=new")  # 로컬에서도 headless 사용
+    # 모든 환경에서 headless 모드 비활성화 (브라우저 창이 보이도록)
+    # if is_railway or is_docker:
+    #     chrome_options.add_argument("--headless=new")
+    #     chrome_options.add_argument("--single-process")
     
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
