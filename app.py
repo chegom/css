@@ -74,16 +74,41 @@ def is_valid_company_url(url):
 
 
 def setup_driver():
+    print("[드라이버 초기화] 시작...")
     chrome_options = Options()
     
     # Railway/Docker 환경 감지
     is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
     is_docker = os.path.exists('/usr/bin/google-chrome')
+    is_windows = os.name == 'nt'
     
-    # 모든 환경에서 headless 모드 비활성화 (브라우저 창이 보이도록)
-    # if is_railway or is_docker:
-    #     chrome_options.add_argument("--headless=new")
-    #     chrome_options.add_argument("--single-process")
+    # Windows 환경에서 Chrome 경로 자동 감지
+    if is_windows:
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+        ]
+        for path in chrome_paths:
+            if os.path.exists(path):
+                chrome_options.binary_location = path
+                print(f"[드라이버 초기화] Chrome 경로 발견: {path}")
+                break
+        else:
+            print("[드라이버 초기화] 경고: Chrome 경로를 찾지 못했습니다. 시스템 기본 경로 사용")
+    
+    # Docker 환경
+    elif is_docker:
+        chrome_options.binary_location = '/usr/bin/google-chrome'
+    
+    # 서버 환경(Railway/Docker)에서는 headless 모드 필수 (GUI 없음)
+    # 로컬 Windows 환경에서는 headless 비활성화 (브라우저 창이 보이도록)
+    if is_railway or is_docker:
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--single-process")
+        print("[드라이버 초기화] 서버 환경 감지: 헤드리스 모드 활성화")
+    else:
+        print("[드라이버 초기화] 로컬 환경: 헤드리스 모드 비활성화 (브라우저 창 표시)")
     
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -92,16 +117,72 @@ def setup_driver():
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-infobars")
     chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--remote-debugging-port=9222")  # 디버깅 포트 추가
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # Railway/Docker 환경
-    if is_docker:
-        chrome_options.binary_location = '/usr/bin/google-chrome'
+    print("[드라이버 초기화] ChromeDriver 준비 중...")
     
-    # webdriver-manager가 자동으로 ChromeDriver 설치
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    return driver
+    service = None
+    
+    # 방법 1: 시스템 PATH에 있는 chromedriver 사용 시도
+    import shutil
+    chromedriver_in_path = shutil.which("chromedriver")
+    if chromedriver_in_path:
+        print(f"[드라이버 초기화] 시스템 PATH에서 ChromeDriver 발견: {chromedriver_in_path}")
+        service = Service(chromedriver_in_path)
+        print("[드라이버 초기화] 시스템 ChromeDriver 사용")
+    else:
+        # 방법 2: ChromeDriverManager 사용 (간단하고 직접적으로)
+        print("[드라이버 초기화] ChromeDriverManager로 드라이버 다운로드 시도...")
+        try:
+            # 직접 호출 (타임아웃은 외부에서 처리)
+            driver_path = ChromeDriverManager().install()
+            print(f"[드라이버 초기화] ChromeDriver 다운로드 완료: {driver_path}")
+            service = Service(driver_path)
+        except Exception as e:
+            print(f"[드라이버 초기화] ChromeDriverManager 실패: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise Exception(f"ChromeDriver 준비 실패: {e}\n해결 방법: ChromeDriver를 수동으로 설치하거나 시스템 PATH에 추가해주세요.\n다운로드: https://chromedriver.chromium.org/")
+    
+    if service is None:
+        raise Exception("ChromeDriver 서비스를 초기화할 수 없습니다.")
+    
+    print("[드라이버 초기화] 브라우저 시작 중...")
+    
+    try:
+        print("[드라이버 초기화] Chrome 브라우저 시작 시도...")
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        print("[드라이버 초기화] 브라우저 시작 완료!")
+        
+        # 브라우저가 정상적으로 시작되었는지 확인
+        driver.set_page_load_timeout(10)
+        driver.get("about:blank")
+        print("[드라이버 초기화] 브라우저 테스트 완료!")
+        
+        return driver
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[드라이버 초기화] 브라우저 시작 실패: {error_msg}")
+        import traceback
+        print(traceback.format_exc())
+        
+        # 추가 디버깅 정보
+        if is_windows:
+            print("[드라이버 초기화] Windows 환경 디버깅 정보:")
+            print(f"  - Chrome 경로: {chrome_options.binary_location if hasattr(chrome_options, 'binary_location') else '미설정'}")
+            print(f"  - ChromeDriver 경로: {driver_path if 'driver_path' in locals() else '알 수 없음'}")
+            
+            # Chrome이 설치되어 있는지 확인
+            import subprocess
+            try:
+                result = subprocess.run(['where', 'chrome'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    print(f"  - 시스템에서 찾은 Chrome: {result.stdout.strip()}")
+            except:
+                pass
+        
+        raise Exception(f"Chrome 브라우저 시작 실패: {error_msg}")
 
 
 def get_naver_links(driver, keyword, pages=5, max_urls=0):
@@ -1516,14 +1597,59 @@ def run_crawling(keywords, session_id, max_count=0, search_pages=10):
     
     user_sessions[session_id] = {
         "results": [],
-        "status": {"running": True, "progress": "크롤링 시작...", "completed": False},
+        "status": {"running": True, "progress": "크롤링 준비 중...", "completed": False},
         "stop_flag": False
     }
     
     try:
-        driver = setup_driver()
+        user_sessions[session_id]["status"]["progress"] = "브라우저 드라이버 초기화 중... (ChromeDriver 다운로드 중일 수 있습니다)"
+        print(f"[세션 {session_id}] 드라이버 초기화 시작")
+        
+        # 타임아웃을 위한 스레드 처리
+        import threading
+        import queue
+        driver_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        def init_driver():
+            try:
+                driver = setup_driver()
+                driver_queue.put(driver)
+            except Exception as e:
+                error_queue.put(e)
+        
+        init_thread = threading.Thread(target=init_driver)
+        init_thread.daemon = True
+        init_thread.start()
+        
+        # 최대 60초 대기
+        init_thread.join(timeout=60)
+        
+        if init_thread.is_alive():
+            error_msg = "드라이버 초기화 타임아웃 (60초 초과). ChromeDriver 다운로드가 너무 오래 걸립니다."
+            print(f"[세션 {session_id}] {error_msg}")
+            user_sessions[session_id]["status"]["progress"] = error_msg
+            user_sessions[session_id]["status"]["running"] = False
+            user_sessions[session_id]["status"]["completed"] = True
+            return
+        
+        if not error_queue.empty():
+            e = error_queue.get()
+            raise e
+        
+        if driver_queue.empty():
+            raise Exception("드라이버 초기화 실패: 결과를 받지 못했습니다.")
+        
+        driver = driver_queue.get()
+        print(f"[세션 {session_id}] 드라이버 초기화 완료")
+        user_sessions[session_id]["status"]["progress"] = "드라이버 초기화 완료. 크롤링 시작..."
     except Exception as e:
-        user_sessions[session_id]["status"]["progress"] = f"드라이버 초기화 실패: {str(e)[:100]}"
+        error_msg = f"드라이버 초기화 실패: {str(e)[:100]}"
+        print(f"[세션 {session_id}] {error_msg}")
+        print(f"[세션 {session_id}] 전체 에러: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        user_sessions[session_id]["status"]["progress"] = error_msg
         user_sessions[session_id]["status"]["running"] = False
         user_sessions[session_id]["status"]["completed"] = True
         return
